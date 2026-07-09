@@ -7,10 +7,11 @@ const DecodeUI = (() => {
   let videoEl, previewCanvas, previewCtx;
   let scanCanvas, scanCtx;
   let stream = null, scanning = false, scanTimer = null;
-  let gridSize = Cimbar.DEFAULT_GRID;
   let frameData = {}, receivedFrames = new Set(), totalFrames = null;
-  let fileName = null, lastFrameIdx = -1, finished = false;
+  let fileName = null, lastFrameIdx = -1, finished = false, framesOk = 0;
   let lastCorners = null, debugCount = 0;
+  // Saved detect params from first successful frame
+  let detectedGridSize = null, detectedBitsPerCell = null;
 
   function init(videoElement, previewCanvasEl, scanWidth, scanHeight) {
     videoEl = videoElement;
@@ -43,8 +44,9 @@ const DecodeUI = (() => {
 
   function resetAccumulator() {
     frameData = {}; receivedFrames = new Set(); totalFrames = null;
-    fileName = null; lastFrameIdx = -1; finished = false;
+    fileName = null; lastFrameIdx = -1; finished = false; framesOk = 0;
     lastCorners = null; debugCount = 0;
+    detectedGridSize = null; detectedBitsPerCell = null;
   }
 
   function drawPreview() {
@@ -61,37 +63,47 @@ const DecodeUI = (() => {
     if (!scanning || !videoEl || videoEl.readyState < 2) return null;
 
     drawPreview();
-
     const sw = scanCanvas.width, sh = scanCanvas.height;
     scanCtx.drawImage(videoEl, 0, 0, sw, sh);
     const imageData = scanCtx.getImageData(0, 0, sw, sh);
 
     const corners = Cimbar.findGridCorners(imageData, sw, sh);
     if (corners) lastCorners = corners;
-
-    // Always draw debug overlay
     drawOverlay(lastCorners);
 
-    if (!corners) {
-      debugCount++;
-      return null;
-    }
+    if (!corners) { debugCount++; return null; }
 
-    const grid = Cimbar.sampleGrid(imageData, sw, sh, corners, gridSize);
-    const frame = Cimbar.decodeGrid(grid, gridSize);
+    let frame;
+
+    if (detectedGridSize !== null) {
+      // Use known params for speed
+      const pal = Cimbar.paletteFor(detectedBitsPerCell === 3 ? 8 : 4);
+      const grid = Cimbar.sampleGrid(imageData, sw, sh, corners, detectedGridSize, pal);
+      frame = Cimbar.decodeGrid(grid, detectedGridSize, detectedBitsPerCell);
+    } else {
+      // Auto-detect: try all combos
+      frame = Cimbar.autoDetectFrame(imageData, sw, sh, corners);
+      if (frame) {
+        detectedGridSize = frame.gridSize;
+        detectedBitsPerCell = (frame.colorDepth === 8) ? 3 : 2;
+      }
+    }
 
     if (!frame) {
       debugCount++;
-      // Show debug: detected but decode failed
-      drawDebugText('DETECTED but CRC fail #' + debugCount);
+      drawDebugText('DETECT but no valid frame #' + debugCount);
       return null;
     }
 
-    // Success
     debugCount = 0;
-    drawDebugText('OK frame ' + frame.frameIdx + '/' + frame.totalFrames);
+    framesOk++;
+    drawDebugText('OK frame ' + frame.frameIdx + '/' + frame.totalFrames +
+                  ' [' + detectedGridSize + 'x' + detectedGridSize + ' ' +
+                  (detectedBitsPerCell === 3 ? 8 : 4) + 'c]');
 
-    if (frame.frameIdx === lastFrameIdx) return { frameIdx: frame.frameIdx, totalFrames: totalFrames || frame.totalFrames, received: receivedFrames.size };
+    if (frame.frameIdx === lastFrameIdx) {
+      return { frameIdx: frame.frameIdx, totalFrames: totalFrames || frame.totalFrames, received: receivedFrames.size };
+    }
     lastFrameIdx = frame.frameIdx;
 
     if (totalFrames === null) totalFrames = frame.totalFrames;
@@ -125,7 +137,6 @@ const DecodeUI = (() => {
       previewCtx.lineTo(corners[2].x*sx, corners[2].y*sy);
       previewCtx.closePath(); previewCtx.stroke();
 
-      // Draw corner dots
       previewCtx.fillStyle = '#ff0';
       for (const c of corners) {
         previewCtx.beginPath();
@@ -137,11 +148,11 @@ const DecodeUI = (() => {
 
   function drawDebugText(msg) {
     if (!previewCtx) return;
-    previewCtx.fillStyle = 'rgba(0,0,0,0.6)';
-    previewCtx.fillRect(8, 8, 260, 28);
+    previewCtx.fillStyle = 'rgba(0,0,0,0.65)';
+    previewCtx.fillRect(6, 6, 320, 26);
     previewCtx.fillStyle = '#0f0';
-    previewCtx.font = '16px monospace';
-    previewCtx.fillText(msg, 16, 28);
+    previewCtx.font = '15px monospace';
+    previewCtx.fillText(msg, 14, 25);
   }
 
   function startScan() {
@@ -163,7 +174,7 @@ const DecodeUI = (() => {
     const payloads = [];
     for (let i = 0; i < totalFrames; i++) {
       const f = frameData[i];
-      if (!f) { drawDebugText('MISSING frame ' + i + '! Keep scanning'); return; }
+      if (!f) { drawDebugText('MISSING frame ' + i + ' — keep scanning'); finished = false; startScan(); return; }
       if (f.hasFilename) {
         const fLen = f.payload[0];
         payloads.push(f.payload.subarray(1 + fLen));
@@ -190,12 +201,14 @@ const DecodeUI = (() => {
     return { fileName, size: result.length };
   }
 
-  function setGridSize(sz) { gridSize = sz; }
-
   function getState() {
-    return { scanning, totalFrames, receivedCount: receivedFrames.size, fileName, gridSize };
+    return {
+      scanning, totalFrames, receivedCount: receivedFrames.size,
+      receivedSet: receivedFrames, fileName, framesOk,
+      detectedGridSize, detectedBitsPerCell,
+    };
   }
 
   return { init, startCamera, stopCamera, startScan, pauseScan, processFrame,
-           resetAccumulator, finishScan, setGridSize, getState };
+           resetAccumulator, finishScan, getState };
 })();

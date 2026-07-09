@@ -43,6 +43,14 @@
             <option value="24">24×24</option>
             <option value="30" selected>30×30</option>
             <option value="36">36×36</option>
+            <option value="42">42×42</option>
+            <option value="48">48×48</option>
+          </select>
+        </label>
+        <label>颜色
+          <select id="color-select">
+            <option value="4">4色</option>
+            <option value="8" selected>8色</option>
           </select>
         </label>
       </div>
@@ -62,6 +70,8 @@
         <canvas id="decode-preview" width="640" height="480"></canvas>
       </div>
 
+      <div id="frame-progress" class="frame-progress"></div>
+
       <div class="controls">
         <button id="btn-start-cam" class="primary">📷 打开摄像头</button>
         <button id="btn-stop-cam">⏹ 关闭</button>
@@ -76,7 +86,7 @@
       </div>
 
       <div class="status-bar">
-        <span id="decode-status">就绪</span>
+        <span id="decode-status">就绪 — 网格和颜色数自动识别</span>
         <span id="decode-progress"></span>
       </div>
     </div>

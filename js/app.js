@@ -4,7 +4,6 @@
 (function () {
   'use strict';
 
-  const GRID_SIZE = Cimbar.DEFAULT_GRID;
   const BARCODE_SIZE = 600;
   const $ = (sel) => document.querySelector(sel);
 
@@ -15,12 +14,13 @@
   const btnPlay = $('#btn-play'), btnPause = $('#btn-pause'), btnStop = $('#btn-stop');
   const encodeStatus = $('#encode-status'), encodeProgress = $('#encode-progress');
   const speedSlider = $('#speed-slider'), speedLabel = $('#speed-label');
-  const gridSelect = $('#grid-select');
+  const gridSelect = $('#grid-select'), colorSelect = $('#color-select');
   const decodeVideo = $('#decode-video'), decodePreview = $('#decode-preview');
   const btnStartCam = $('#btn-start-cam'), btnStopCam = $('#btn-stop-cam');
   const btnScan = $('#btn-scan'), btnPauseScan = $('#btn-pause-scan');
   const decodeStatus = $('#decode-status'), decodeProgress = $('#decode-progress');
   const cameraSelect = $('#camera-select');
+  const frameProgressBar = $('#frame-progress');
 
   let encodeInterval = null, decodeInterval = null;
 
@@ -49,6 +49,7 @@
   tabEncode.addEventListener('click', () => switchTab('encode'));
   tabDecode.addEventListener('click', () => switchTab('decode'));
 
+  // --- Encode ---
   function updateEncodeStatus() {
     const s = EncodeUI.getState();
     encodeProgress.textContent = s.totalFrames
@@ -63,7 +64,8 @@
       encodeStatus.textContent = 'Encoding…';
       const result = await EncodeUI.loadFile(file);
       const s = EncodeUI.getState();
-      encodeStatus.textContent = 'Ready — ' + result.totalFrames + ' frames, ' + s.bytesPerFrame + ' bytes each';
+      encodeStatus.textContent = 'Ready — ' + result.totalFrames + ' frames, ' +
+        s.bytesPerFrame + ' B/frame, ' + result.colorCount + ' colors';
       EncodeUI.renderFrame(0); updateEncodeStatus();
     } catch (e) { encodeStatus.textContent = 'Error: ' + e.message; }
   }
@@ -93,35 +95,72 @@
 
   gridSelect.addEventListener('change', () => {
     const sz = parseInt(gridSelect.value);
-    EncodeUI.setGridSize(sz); DecodeUI.setGridSize(sz);
+    EncodeUI.setGridSize(sz);
     encodeStatus.textContent = 'Grid changed — reselect file to re-encode';
   });
+  colorSelect.addEventListener('change', () => {
+    const cc = parseInt(colorSelect.value);
+    EncodeUI.setColorCount(cc);
+    encodeStatus.textContent = 'Colors changed — reselect file to re-encode';
+  });
+
+  // --- Decode ---
+  function renderFrameProgress() {
+    const s = DecodeUI.getState();
+    if (!s.totalFrames) {
+      frameProgressBar.style.display = 'none';
+      return;
+    }
+    frameProgressBar.style.display = 'flex';
+
+    let html = '';
+    for (let i = 0; i < s.totalFrames; i++) {
+      const rcvd = s.receivedSet.has(i);
+      html += '<span class="fc ' + (rcvd ? 'rcvd' : 'pend') + '" title="Frame ' + (i+1) + (rcvd ? ' ✓' : ' ...') + '"></span>';
+    }
+    frameProgressBar.innerHTML = html;
+  }
 
   function updateDecodeStatus() {
     const s = DecodeUI.getState();
-    if (s.totalFrames) decodeProgress.textContent = s.receivedCount + ' / ' + s.totalFrames + ' frames';
+    renderFrameProgress();
+    if (s.totalFrames) {
+      decodeProgress.textContent = s.receivedCount + ' / ' + s.totalFrames + ' frames';
+      if (s.detectedGridSize) {
+        decodeProgress.textContent += '  [' + s.detectedGridSize + '×' + s.detectedGridSize +
+          ' ' + (s.detectedBitsPerCell === 3 ? 8 : 4) + '色]';
+      }
+    }
     if (s.totalFrames && s.receivedCount >= s.totalFrames) {
-      decodeStatus.textContent = 'File received: ' + (s.fileName || 'unknown');
+      decodeStatus.textContent = '✅ File received: ' + (s.fileName || 'unknown');
       clearDecodeInterval();
       return;
     }
-    decodeStatus.textContent = s.scanning ? 'Scanning…' : (s.totalFrames ? 'Paused' : 'Ready');
+    decodeStatus.textContent = s.scanning ? 'Scanning… (' + s.receivedCount + '/' + (s.totalFrames||'?') + ')' :
+      (s.totalFrames ? 'Paused — ' + s.receivedCount + '/' + s.totalFrames : 'Ready');
   }
 
   btnStartCam.addEventListener('click', async () => {
     try {
       decodeStatus.textContent = 'Starting camera…';
+      frameProgressBar.style.display = 'none';
       await DecodeUI.startCamera(cameraSelect.value);
       decodeStatus.textContent = 'Camera ready — point at barcode';
     } catch (e) { decodeStatus.textContent = 'Camera error: ' + e.message; }
   });
-  btnStopCam.addEventListener('click', () => { DecodeUI.stopCamera(); clearDecodeInterval(); decodeStatus.textContent = 'Camera stopped'; decodeProgress.textContent = ''; });
+  btnStopCam.addEventListener('click', () => {
+    DecodeUI.stopCamera(); clearDecodeInterval();
+    decodeStatus.textContent = 'Camera stopped'; decodeProgress.textContent = '';
+    frameProgressBar.style.display = 'none';
+  });
   btnScan.addEventListener('click', () => {
     DecodeUI.startScan(); updateDecodeStatus();
     clearDecodeInterval();
-    decodeInterval = setInterval(updateDecodeStatus, 300);
+    decodeInterval = setInterval(updateDecodeStatus, 250);
   });
-  btnPauseScan.addEventListener('click', () => { DecodeUI.pauseScan(); clearDecodeInterval(); updateDecodeStatus(); });
+  btnPauseScan.addEventListener('click', () => {
+    DecodeUI.pauseScan(); clearDecodeInterval(); updateDecodeStatus();
+  });
 
   switchTab('encode');
 })();

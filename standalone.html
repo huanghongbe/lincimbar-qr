@@ -220,6 +220,23 @@ footer {
   .controls button { width: 100%; }
 }
 
+/* Frame progress chips */
+.frame-progress {
+  display: none;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 12px;
+  justify-content: center;
+}
+.fc {
+  width: 14px; height: 14px;
+  border-radius: 3px;
+  display: inline-block;
+  transition: background .2s;
+}
+.fc.pend { background: #30363d; border: 1px solid #484f58; }
+.fc.rcvd { background: #3fb950; border: 1px solid #2ea043; }
+
 </style>
 </head>
 <body data-tab="encode">
@@ -259,6 +276,14 @@ footer {
             <option value="24">24×24</option>
             <option value="30" selected>30×30</option>
             <option value="36">36×36</option>
+            <option value="42">42×42</option>
+            <option value="48">48×48</option>
+          </select>
+        </label>
+        <label>颜色
+          <select id="color-select">
+            <option value="4">4色</option>
+            <option value="8" selected>8色</option>
           </select>
         </label>
       </div>
@@ -278,6 +303,8 @@ footer {
         <canvas id="decode-preview" width="640" height="480"></canvas>
       </div>
 
+      <div id="frame-progress" class="frame-progress"></div>
+
       <div class="controls">
         <button id="btn-start-cam" class="primary">📷 打开摄像头</button>
         <button id="btn-stop-cam">⏹ 关闭</button>
@@ -292,7 +319,7 @@ footer {
       </div>
 
       <div class="status-bar">
-        <span id="decode-status">就绪</span>
+        <span id="decode-status">就绪 — 网格和颜色数自动识别</span>
         <span id="decode-progress"></span>
       </div>
     </div>
@@ -307,7 +334,6 @@ footer {
 <script>
 /**
  * libcimbar.js — Core encoding/decoding engine for color barcode file transfer
- * Based on the cimbar (Color Icon Matrix Barcode) concept by sz3
  */
 const Cimbar = (() => {
   'use strict';
@@ -316,20 +342,26 @@ const Cimbar = (() => {
   const VERSION = 0x01;
 
   const MARKER_COLOR = [0, 140, 140];
-  const DATA_COLORS = [
-    [30, 30, 30],
-    [220, 50, 50],
-    [50, 180, 50],
-    [50, 100, 220],
+  const DATA_COLORS_4 = [
+    [30, 30, 30], [220, 50, 50], [50, 180, 50], [50, 100, 220],
+  ];
+  const DATA_COLORS_8 = [
+    [30, 30, 30], [220, 50, 50], [50, 180, 50], [50, 100, 220],
+    [220, 200, 30], [200, 50, 180], [30, 200, 200], [220, 220, 220],
   ];
   const CORNER_MARKER = [255, 255, 255];
-  const BITS_PER_CELL = 2;
   const BORDER_CELLS = 2;
   const DEFAULT_GRID = 30;
+  const DEFAULT_COLORS = 8;
+  const TRIAL_GRIDS = [24, 30, 36, 42, 48];
+  const TRIAL_COLORS = [8, 4];
 
   function dataCellsPerSide(g) { return g - 2 * BORDER_CELLS; }
   function totalDataCells(g) { return dataCellsPerSide(g) ** 2; }
-  function bytesPerFrame(g) { return Math.floor((totalDataCells(g) * BITS_PER_CELL) / 8); }
+  function bytesPerFrame(g, bpc) { return Math.floor((totalDataCells(g) * bpc) / 8); }
+
+  function paletteFor(colors) { return colors === 8 ? DATA_COLORS_8 : DATA_COLORS_4; }
+  function bitsPerCellFor(colors) { return colors === 8 ? 3 : 2; }
 
   function crc16(data) {
     let crc = 0xffff;
@@ -360,19 +392,17 @@ const Cimbar = (() => {
     return new Uint8Array(bytes);
   }
 
-  function bitsToColor(b0, b1) { return ((b0 & 1) << 1) | (b1 & 1); }
-
   function createEmptyGrid(n) {
     const g = new Array(n);
     for (let i = 0; i < n; i++) g[i] = new Array(n).fill(0);
     return g;
   }
 
-  function encodeGrid(frameBytes, gridSize) {
+  function encodeGrid(frameBytes, gridSize, bitsPerCell) {
     const grid = createEmptyGrid(gridSize);
     const dataSide = dataCellsPerSide(gridSize);
     const bits = bytesToBits(frameBytes);
-    const maxBits = totalDataCells(gridSize) * BITS_PER_CELL;
+    const maxBits = totalDataCells(gridSize) * bitsPerCell;
 
     for (let r = 0; r < gridSize; r++) {
       for (let c = 0; c < gridSize; c++) {
@@ -382,47 +412,56 @@ const Cimbar = (() => {
           grid[r][c] = -1;
         } else {
           const cellIdx = (r - BORDER_CELLS) * dataSide + (c - BORDER_CELLS);
-          const base = cellIdx * BITS_PER_CELL;
-          if (base + 1 < maxBits && base + 1 < bits.length)
-            grid[r][c] = bitsToColor(bits[base], bits[base + 1]);
-          else
+          const base = cellIdx * bitsPerCell;
+          if (base + bitsPerCell - 1 < maxBits) {
+            let v = 0;
+            for (let b = 0; b < bitsPerCell; b++) {
+              const bit = (base + b < bits.length) ? (bits[base + b] & 1) : 0;
+              v = (v << 1) | bit;
+            }
+            grid[r][c] = v;
+          } else {
             grid[r][c] = 0;
+          }
         }
       }
     }
 
     for (let r = 0; r < 2; r++)
-      for (let c = 0; c < 2; c++) grid[r][c] = 4;
+      for (let c = 0; c < 2; c++) grid[r][c] = -2;
     for (let r = 0; r < 2; r++)
-      for (let c = gridSize - 2; c < gridSize; c++) grid[r][c] = 4;
+      for (let c = gridSize - 2; c < gridSize; c++) grid[r][c] = -2;
     for (let r = gridSize - 2; r < gridSize; r++)
-      for (let c = 0; c < 2; c++) grid[r][c] = 4;
+      for (let c = 0; c < 2; c++) grid[r][c] = -2;
 
     return grid;
   }
 
-  function getCellColor(v) {
+  function getCellColor(v, palette) {
     if (v === -1) return MARKER_COLOR;
-    if (v === 4) return CORNER_MARKER;
-    return DATA_COLORS[v] || DATA_COLORS[0];
+    if (v === -2) return CORNER_MARKER;
+    if (!palette) palette = DATA_COLORS_8;
+    return palette[v] || palette[0];
   }
 
-  function renderGrid(ctx, grid, canvasSize) {
-    const gs = grid.length;
-    const cs = canvasSize / gs;
+  function renderGrid(ctx, grid, canvasSize, palette) {
+    palette = palette || DATA_COLORS_8;
+    const gs = grid.length, cs = canvasSize / gs;
     ctx.clearRect(0, 0, canvasSize, canvasSize);
     for (let r = 0; r < gs; r++) {
       for (let c = 0; c < gs; c++) {
-        const [cr, cg, cb] = getCellColor(grid[r][c]);
+        const [cr, cg, cb] = getCellColor(grid[r][c], palette);
         ctx.fillStyle = 'rgb(' + cr + ',' + cg + ',' + cb + ')';
         ctx.fillRect(Math.floor(c * cs), Math.floor(r * cs), Math.ceil(cs), Math.ceil(cs));
       }
     }
   }
 
-  function encodeFile(fileBuffer, fileName, gridSize) {
+  function encodeFile(fileBuffer, fileName, gridSize, colorCount) {
     gridSize = gridSize || DEFAULT_GRID;
-    const frameCapacity = bytesPerFrame(gridSize);
+    colorCount = colorCount || DEFAULT_COLORS;
+    const bitsPerCell = bitsPerCellFor(colorCount);
+    const frameCapacity = bytesPerFrame(gridSize, bitsPerCell);
     const overhead = 10;
     const maxPayload = frameCapacity - overhead;
     if (maxPayload < 1) throw new Error('Grid too small');
@@ -438,7 +477,7 @@ const Cimbar = (() => {
 
     for (let fi = 0; fi < totalFrames; fi++) {
       let payload;
-      const flags = fi === 0 ? 1 : 0;
+      const flags = (fi === 0 ? 1 : 0) | (colorCount === 8 ? 2 : 0);
 
       if (fi === 0) {
         const dLen = Math.min(f0Data, fileBuffer.length);
@@ -455,29 +494,28 @@ const Cimbar = (() => {
       const fb = new Uint8Array(8 + payload.length + 2);
       fb[0] = MAGIC; fb[1] = VERSION; fb[2] = fi; fb[3] = totalFrames;
       fb[4] = (payload.length >> 8) & 0xff; fb[5] = payload.length & 0xff;
-      fb[6] = flags; fb[7] = 0;
+      fb[6] = flags;
+      fb[7] = gridSize;
       fb.set(payload, 8);
       const crc = crc16(fb.subarray(0, 8 + payload.length));
       fb[8 + payload.length] = (crc >> 8) & 0xff;
       fb[8 + payload.length + 1] = crc & 0xff;
-      grids.push(encodeGrid(fb, gridSize));
+      grids.push(encodeGrid(fb, gridSize, bitsPerCell));
     }
 
-    return { grids, totalFrames, fileName };
+    return { grids, totalFrames, fileName, gridSize, colorCount, palette: paletteFor(colorCount) };
   }
 
-  // Relaxed teal detection — red is low but not necessarily < 89
   function isMarkerColor(r, g, b) {
-    // Teal = low red, balanced green & blue
     if (g < 40 || b < 40 || r > g + 30 || r > b + 30) return false;
     const dg = g / 255, db = b / 255;
     return Math.abs(dg - db) < 0.4;
   }
 
-  function classifyCellColor(r, g, b) {
+  function classifyCellColor(r, g, b, palette) {
     let best = 0, bestDist = Infinity;
-    for (let i = 0; i < DATA_COLORS.length; i++) {
-      const [cr, cg, cb] = DATA_COLORS[i];
+    for (let i = 0; i < palette.length; i++) {
+      const [cr, cg, cb] = palette[i];
       const d = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
       if (d < bestDist) { bestDist = d; best = i; }
     }
@@ -487,7 +525,6 @@ const Cimbar = (() => {
   function findGridCorners(imageData, width, height) {
     const pixels = imageData.data;
     const pts = [];
-    // Sample every pixel for better detection (skip only every other row for perf)
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = (y * width + x) * 4;
@@ -505,7 +542,6 @@ const Cimbar = (() => {
 
     const bw = maxX - minX, bh = maxY - minY;
     if (bw < 20 || bh < 20) return null;
-    // Reject if too narrow
     if (bw > 3 * bh || bh > 3 * bw) return null;
 
     return [{ x: minX, y: minY }, { x: maxX, y: minY },
@@ -520,7 +556,8 @@ const Cimbar = (() => {
     };
   }
 
-  function sampleGrid(imageData, imgWidth, imgHeight, corners, gridSize) {
+  function sampleGrid(imageData, imgWidth, imgHeight, corners, gridSize, palette) {
+    palette = palette || DATA_COLORS_8;
     const grid = createEmptyGrid(gridSize);
     const pixels = imageData.data;
     for (let r = 0; r < gridSize; r++) {
@@ -534,16 +571,17 @@ const Cimbar = (() => {
         const isBorder = r < BORDER_CELLS || r >= gridSize - BORDER_CELLS ||
                          c < BORDER_CELLS || c >= gridSize - BORDER_CELLS;
         if (isBorder) {
-          grid[r][c] = ((pr - 255) ** 2 + (pg - 255) ** 2 + (pb - 255) ** 2) < 15000 ? 4 : -1;
+          grid[r][c] = ((pr - 255) ** 2 + (pg - 255) ** 2 + (pb - 255) ** 2) < 15000 ? -2 : -1;
         } else {
-          grid[r][c] = classifyCellColor(pr, pg, pb);
+          grid[r][c] = classifyCellColor(pr, pg, pb, palette);
         }
       }
     }
     return grid;
   }
 
-  function decodeGrid(grid, gridSize) {
+  function decodeGrid(grid, gridSize, bitsPerCell) {
+    const colorCount = 1 << bitsPerCell;
     const bits = [];
     for (let r = 0; r < gridSize; r++) {
       for (let c = 0; c < gridSize; c++) {
@@ -551,8 +589,11 @@ const Cimbar = (() => {
                          c < BORDER_CELLS || c >= gridSize - BORDER_CELLS;
         if (isBorder) continue;
         const ci = grid[r][c];
-        if (ci < 0 || ci >= DATA_COLORS.length) { bits.push(0, 0); }
-        else { bits.push((ci >> 1) & 1, ci & 1); }
+        if (ci < 0 || ci >= colorCount) {
+          for (let b = 0; b < bitsPerCell; b++) bits.push(0);
+        } else {
+          for (let b = bitsPerCell - 1; b >= 0; b--) bits.push((ci >> b) & 1);
+        }
       }
     }
     const fb = bitsToBytes(bits);
@@ -560,19 +601,34 @@ const Cimbar = (() => {
     const frameIdx = fb[2], totalFrames = fb[3];
     const payloadLen = (fb[4] << 8) | fb[5];
     const flags = fb[6], hasFilename = !!(flags & 1);
+    const colorDepth = (flags & 2) ? 8 : 4;
     if (8 + payloadLen + 2 > fb.length) return null;
     const crcData = fb.subarray(0, 8 + payloadLen);
     const expCrc = (fb[8 + payloadLen] << 8) | fb[8 + payloadLen + 1];
     if (crc16(crcData) !== expCrc) return null;
     const payload = fb.subarray(8, 8 + payloadLen);
-    return { frameIdx, totalFrames, hasFilename, payload, version: fb[1] };
+    return { frameIdx, totalFrames, hasFilename, payload, version: fb[1], colorDepth, gridSize: fb[7] || DEFAULT_GRID };
+  }
+
+  // Auto-detect: try all gridSize × colorDepth combos, return first valid frame
+  function autoDetectFrame(imageData, imgWidth, imgHeight, corners) {
+    for (const gs of TRIAL_GRIDS) {
+      for (const cc of TRIAL_COLORS) {
+        const pal = paletteFor(cc);
+        const bpc = bitsPerCellFor(cc);
+        const grid = sampleGrid(imageData, imgWidth, imgHeight, corners, gs, pal);
+        const frame = decodeGrid(grid, gs, bpc);
+        if (frame) return frame;
+      }
+    }
+    return null;
   }
 
   return {
-    MAGIC, VERSION, MARKER_COLOR, DATA_COLORS, CORNER_MARKER,
-    BITS_PER_CELL, BORDER_CELLS, DEFAULT_GRID,
-    bytesPerFrame, crc16, encodeFile, renderGrid,
-    findGridCorners, sampleGrid, decodeGrid,
+    MAGIC, VERSION, MARKER_COLOR, DATA_COLORS_4, DATA_COLORS_8, CORNER_MARKER,
+    BORDER_CELLS, DEFAULT_GRID, TRIAL_GRIDS,
+    bytesPerFrame, crc16, encodeFile, renderGrid, paletteFor, bitsPerCellFor,
+    findGridCorners, sampleGrid, decodeGrid, autoDetectFrame,
     getCellColor, classifyCellColor,
   };
 })();
@@ -588,6 +644,7 @@ const EncodeUI = (() => {
   let grids = [], totalFrames = 0, currentFrame = 0;
   let animId = null, playing = false;
   let gridSize = Cimbar.DEFAULT_GRID;
+  let colorCount = 8, palette = Cimbar.DATA_COLORS_8;
   let frameMs = 300, repeatCount = 2;
   let canvas, ctx, canvasSize = 600;
 
@@ -603,17 +660,18 @@ const EncodeUI = (() => {
     stop();
     const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
-    const result = Cimbar.encodeFile(bytes, file.name, gridSize);
+    const result = Cimbar.encodeFile(bytes, file.name, gridSize, colorCount);
     grids = result.grids;
     totalFrames = result.totalFrames;
     currentFrame = 0;
+    palette = result.palette;
     return result;
   }
 
   function renderFrame(idx) {
     if (!grids.length) return;
     const i = idx % totalFrames;
-    Cimbar.renderGrid(ctx, grids[i], canvasSize);
+    Cimbar.renderGrid(ctx, grids[i], canvasSize, palette);
   }
 
   function tick() {
@@ -623,41 +681,32 @@ const EncodeUI = (() => {
     animId = setTimeout(tick, frameMs);
   }
 
-  function play() {
-    if (playing || !grids.length) return;
-    playing = true;
-    tick();
-  }
-
-  function pause() {
-    playing = false;
-    if (animId) { clearTimeout(animId); animId = null; }
-  }
-
+  function play() { if (!playing && grids.length) { playing = true; tick(); } }
+  function pause() { playing = false; if (animId) { clearTimeout(animId); animId = null; } }
   function stop() {
     pause();
-    grids = [];
-    totalFrames = 0;
-    currentFrame = 0;
-    if (ctx && canvas) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
+    grids = []; totalFrames = 0; currentFrame = 0;
+    if (ctx && canvas) ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
 
   function setGridSize(sz) { gridSize = sz; }
+  function setColorCount(cc) {
+    colorCount = cc;
+    palette = Cimbar.paletteFor(cc);
+  }
   function setSpeed(ms) { frameMs = ms; }
   function setRepeat(n) { repeatCount = n; }
 
   function getState() {
     return {
       playing, totalFrames, currentFrame,
-      gridSize, frameMs, repeatCount,
-      bytesPerFrame: Cimbar.bytesPerFrame(gridSize),
+      gridSize, colorCount, frameMs, repeatCount,
+      bytesPerFrame: Cimbar.bytesPerFrame(gridSize, Cimbar.bitsPerCellFor(colorCount)),
     };
   }
 
   return { init, loadFile, play, pause, stop, renderFrame,
-           setGridSize, setSpeed, setRepeat, getState };
+           setGridSize, setColorCount, setSpeed, setRepeat, getState };
 })();
 
 </script>
@@ -671,10 +720,11 @@ const DecodeUI = (() => {
   let videoEl, previewCanvas, previewCtx;
   let scanCanvas, scanCtx;
   let stream = null, scanning = false, scanTimer = null;
-  let gridSize = Cimbar.DEFAULT_GRID;
   let frameData = {}, receivedFrames = new Set(), totalFrames = null;
-  let fileName = null, lastFrameIdx = -1, finished = false;
+  let fileName = null, lastFrameIdx = -1, finished = false, framesOk = 0;
   let lastCorners = null, debugCount = 0;
+  // Saved detect params from first successful frame
+  let detectedGridSize = null, detectedBitsPerCell = null;
 
   function init(videoElement, previewCanvasEl, scanWidth, scanHeight) {
     videoEl = videoElement;
@@ -707,8 +757,9 @@ const DecodeUI = (() => {
 
   function resetAccumulator() {
     frameData = {}; receivedFrames = new Set(); totalFrames = null;
-    fileName = null; lastFrameIdx = -1; finished = false;
+    fileName = null; lastFrameIdx = -1; finished = false; framesOk = 0;
     lastCorners = null; debugCount = 0;
+    detectedGridSize = null; detectedBitsPerCell = null;
   }
 
   function drawPreview() {
@@ -725,37 +776,47 @@ const DecodeUI = (() => {
     if (!scanning || !videoEl || videoEl.readyState < 2) return null;
 
     drawPreview();
-
     const sw = scanCanvas.width, sh = scanCanvas.height;
     scanCtx.drawImage(videoEl, 0, 0, sw, sh);
     const imageData = scanCtx.getImageData(0, 0, sw, sh);
 
     const corners = Cimbar.findGridCorners(imageData, sw, sh);
     if (corners) lastCorners = corners;
-
-    // Always draw debug overlay
     drawOverlay(lastCorners);
 
-    if (!corners) {
-      debugCount++;
-      return null;
-    }
+    if (!corners) { debugCount++; return null; }
 
-    const grid = Cimbar.sampleGrid(imageData, sw, sh, corners, gridSize);
-    const frame = Cimbar.decodeGrid(grid, gridSize);
+    let frame;
+
+    if (detectedGridSize !== null) {
+      // Use known params for speed
+      const pal = Cimbar.paletteFor(detectedBitsPerCell === 3 ? 8 : 4);
+      const grid = Cimbar.sampleGrid(imageData, sw, sh, corners, detectedGridSize, pal);
+      frame = Cimbar.decodeGrid(grid, detectedGridSize, detectedBitsPerCell);
+    } else {
+      // Auto-detect: try all combos
+      frame = Cimbar.autoDetectFrame(imageData, sw, sh, corners);
+      if (frame) {
+        detectedGridSize = frame.gridSize;
+        detectedBitsPerCell = (frame.colorDepth === 8) ? 3 : 2;
+      }
+    }
 
     if (!frame) {
       debugCount++;
-      // Show debug: detected but decode failed
-      drawDebugText('DETECTED but CRC fail #' + debugCount);
+      drawDebugText('DETECT but no valid frame #' + debugCount);
       return null;
     }
 
-    // Success
     debugCount = 0;
-    drawDebugText('OK frame ' + frame.frameIdx + '/' + frame.totalFrames);
+    framesOk++;
+    drawDebugText('OK frame ' + frame.frameIdx + '/' + frame.totalFrames +
+                  ' [' + detectedGridSize + 'x' + detectedGridSize + ' ' +
+                  (detectedBitsPerCell === 3 ? 8 : 4) + 'c]');
 
-    if (frame.frameIdx === lastFrameIdx) return { frameIdx: frame.frameIdx, totalFrames: totalFrames || frame.totalFrames, received: receivedFrames.size };
+    if (frame.frameIdx === lastFrameIdx) {
+      return { frameIdx: frame.frameIdx, totalFrames: totalFrames || frame.totalFrames, received: receivedFrames.size };
+    }
     lastFrameIdx = frame.frameIdx;
 
     if (totalFrames === null) totalFrames = frame.totalFrames;
@@ -789,7 +850,6 @@ const DecodeUI = (() => {
       previewCtx.lineTo(corners[2].x*sx, corners[2].y*sy);
       previewCtx.closePath(); previewCtx.stroke();
 
-      // Draw corner dots
       previewCtx.fillStyle = '#ff0';
       for (const c of corners) {
         previewCtx.beginPath();
@@ -801,11 +861,11 @@ const DecodeUI = (() => {
 
   function drawDebugText(msg) {
     if (!previewCtx) return;
-    previewCtx.fillStyle = 'rgba(0,0,0,0.6)';
-    previewCtx.fillRect(8, 8, 260, 28);
+    previewCtx.fillStyle = 'rgba(0,0,0,0.65)';
+    previewCtx.fillRect(6, 6, 320, 26);
     previewCtx.fillStyle = '#0f0';
-    previewCtx.font = '16px monospace';
-    previewCtx.fillText(msg, 16, 28);
+    previewCtx.font = '15px monospace';
+    previewCtx.fillText(msg, 14, 25);
   }
 
   function startScan() {
@@ -827,7 +887,7 @@ const DecodeUI = (() => {
     const payloads = [];
     for (let i = 0; i < totalFrames; i++) {
       const f = frameData[i];
-      if (!f) { drawDebugText('MISSING frame ' + i + '! Keep scanning'); return; }
+      if (!f) { drawDebugText('MISSING frame ' + i + ' — keep scanning'); finished = false; startScan(); return; }
       if (f.hasFilename) {
         const fLen = f.payload[0];
         payloads.push(f.payload.subarray(1 + fLen));
@@ -854,14 +914,16 @@ const DecodeUI = (() => {
     return { fileName, size: result.length };
   }
 
-  function setGridSize(sz) { gridSize = sz; }
-
   function getState() {
-    return { scanning, totalFrames, receivedCount: receivedFrames.size, fileName, gridSize };
+    return {
+      scanning, totalFrames, receivedCount: receivedFrames.size,
+      receivedSet: receivedFrames, fileName, framesOk,
+      detectedGridSize, detectedBitsPerCell,
+    };
   }
 
   return { init, startCamera, stopCamera, startScan, pauseScan, processFrame,
-           resetAccumulator, finishScan, setGridSize, getState };
+           resetAccumulator, finishScan, getState };
 })();
 
 </script>
@@ -872,7 +934,6 @@ const DecodeUI = (() => {
 (function () {
   'use strict';
 
-  const GRID_SIZE = Cimbar.DEFAULT_GRID;
   const BARCODE_SIZE = 600;
   const $ = (sel) => document.querySelector(sel);
 
@@ -883,12 +944,13 @@ const DecodeUI = (() => {
   const btnPlay = $('#btn-play'), btnPause = $('#btn-pause'), btnStop = $('#btn-stop');
   const encodeStatus = $('#encode-status'), encodeProgress = $('#encode-progress');
   const speedSlider = $('#speed-slider'), speedLabel = $('#speed-label');
-  const gridSelect = $('#grid-select');
+  const gridSelect = $('#grid-select'), colorSelect = $('#color-select');
   const decodeVideo = $('#decode-video'), decodePreview = $('#decode-preview');
   const btnStartCam = $('#btn-start-cam'), btnStopCam = $('#btn-stop-cam');
   const btnScan = $('#btn-scan'), btnPauseScan = $('#btn-pause-scan');
   const decodeStatus = $('#decode-status'), decodeProgress = $('#decode-progress');
   const cameraSelect = $('#camera-select');
+  const frameProgressBar = $('#frame-progress');
 
   let encodeInterval = null, decodeInterval = null;
 
@@ -917,6 +979,7 @@ const DecodeUI = (() => {
   tabEncode.addEventListener('click', () => switchTab('encode'));
   tabDecode.addEventListener('click', () => switchTab('decode'));
 
+  // --- Encode ---
   function updateEncodeStatus() {
     const s = EncodeUI.getState();
     encodeProgress.textContent = s.totalFrames
@@ -931,7 +994,8 @@ const DecodeUI = (() => {
       encodeStatus.textContent = 'Encoding…';
       const result = await EncodeUI.loadFile(file);
       const s = EncodeUI.getState();
-      encodeStatus.textContent = 'Ready — ' + result.totalFrames + ' frames, ' + s.bytesPerFrame + ' bytes each';
+      encodeStatus.textContent = 'Ready — ' + result.totalFrames + ' frames, ' +
+        s.bytesPerFrame + ' B/frame, ' + result.colorCount + ' colors';
       EncodeUI.renderFrame(0); updateEncodeStatus();
     } catch (e) { encodeStatus.textContent = 'Error: ' + e.message; }
   }
@@ -961,35 +1025,72 @@ const DecodeUI = (() => {
 
   gridSelect.addEventListener('change', () => {
     const sz = parseInt(gridSelect.value);
-    EncodeUI.setGridSize(sz); DecodeUI.setGridSize(sz);
+    EncodeUI.setGridSize(sz);
     encodeStatus.textContent = 'Grid changed — reselect file to re-encode';
   });
+  colorSelect.addEventListener('change', () => {
+    const cc = parseInt(colorSelect.value);
+    EncodeUI.setColorCount(cc);
+    encodeStatus.textContent = 'Colors changed — reselect file to re-encode';
+  });
+
+  // --- Decode ---
+  function renderFrameProgress() {
+    const s = DecodeUI.getState();
+    if (!s.totalFrames) {
+      frameProgressBar.style.display = 'none';
+      return;
+    }
+    frameProgressBar.style.display = 'flex';
+
+    let html = '';
+    for (let i = 0; i < s.totalFrames; i++) {
+      const rcvd = s.receivedSet.has(i);
+      html += '<span class="fc ' + (rcvd ? 'rcvd' : 'pend') + '" title="Frame ' + (i+1) + (rcvd ? ' ✓' : ' ...') + '"></span>';
+    }
+    frameProgressBar.innerHTML = html;
+  }
 
   function updateDecodeStatus() {
     const s = DecodeUI.getState();
-    if (s.totalFrames) decodeProgress.textContent = s.receivedCount + ' / ' + s.totalFrames + ' frames';
+    renderFrameProgress();
+    if (s.totalFrames) {
+      decodeProgress.textContent = s.receivedCount + ' / ' + s.totalFrames + ' frames';
+      if (s.detectedGridSize) {
+        decodeProgress.textContent += '  [' + s.detectedGridSize + '×' + s.detectedGridSize +
+          ' ' + (s.detectedBitsPerCell === 3 ? 8 : 4) + '色]';
+      }
+    }
     if (s.totalFrames && s.receivedCount >= s.totalFrames) {
-      decodeStatus.textContent = 'File received: ' + (s.fileName || 'unknown');
+      decodeStatus.textContent = '✅ File received: ' + (s.fileName || 'unknown');
       clearDecodeInterval();
       return;
     }
-    decodeStatus.textContent = s.scanning ? 'Scanning…' : (s.totalFrames ? 'Paused' : 'Ready');
+    decodeStatus.textContent = s.scanning ? 'Scanning… (' + s.receivedCount + '/' + (s.totalFrames||'?') + ')' :
+      (s.totalFrames ? 'Paused — ' + s.receivedCount + '/' + s.totalFrames : 'Ready');
   }
 
   btnStartCam.addEventListener('click', async () => {
     try {
       decodeStatus.textContent = 'Starting camera…';
+      frameProgressBar.style.display = 'none';
       await DecodeUI.startCamera(cameraSelect.value);
       decodeStatus.textContent = 'Camera ready — point at barcode';
     } catch (e) { decodeStatus.textContent = 'Camera error: ' + e.message; }
   });
-  btnStopCam.addEventListener('click', () => { DecodeUI.stopCamera(); clearDecodeInterval(); decodeStatus.textContent = 'Camera stopped'; decodeProgress.textContent = ''; });
+  btnStopCam.addEventListener('click', () => {
+    DecodeUI.stopCamera(); clearDecodeInterval();
+    decodeStatus.textContent = 'Camera stopped'; decodeProgress.textContent = '';
+    frameProgressBar.style.display = 'none';
+  });
   btnScan.addEventListener('click', () => {
     DecodeUI.startScan(); updateDecodeStatus();
     clearDecodeInterval();
-    decodeInterval = setInterval(updateDecodeStatus, 300);
+    decodeInterval = setInterval(updateDecodeStatus, 250);
   });
-  btnPauseScan.addEventListener('click', () => { DecodeUI.pauseScan(); clearDecodeInterval(); updateDecodeStatus(); });
+  btnPauseScan.addEventListener('click', () => {
+    DecodeUI.pauseScan(); clearDecodeInterval(); updateDecodeStatus();
+  });
 
   switchTab('encode');
 })();

@@ -7,6 +7,7 @@ const EncodeUI = (() => {
   let grids = [], totalFrames = 0, currentFrame = 0;
   let animId = null, playing = false;
   let gridSize = Cimbar.DEFAULT_GRID;
+  let colorCount = 8, palette = Cimbar.DATA_COLORS_8;
   let frameMs = 300, repeatCount = 2;
   let canvas, ctx, canvasSize = 600;
 
@@ -22,17 +23,18 @@ const EncodeUI = (() => {
     stop();
     const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
-    const result = Cimbar.encodeFile(bytes, file.name, gridSize);
+    const result = Cimbar.encodeFile(bytes, file.name, gridSize, colorCount);
     grids = result.grids;
     totalFrames = result.totalFrames;
     currentFrame = 0;
+    palette = result.palette;
     return result;
   }
 
   function renderFrame(idx) {
     if (!grids.length) return;
     const i = idx % totalFrames;
-    Cimbar.renderGrid(ctx, grids[i], canvasSize);
+    Cimbar.renderGrid(ctx, grids[i], canvasSize, palette);
   }
 
   function tick() {
@@ -42,39 +44,30 @@ const EncodeUI = (() => {
     animId = setTimeout(tick, frameMs);
   }
 
-  function play() {
-    if (playing || !grids.length) return;
-    playing = true;
-    tick();
-  }
-
-  function pause() {
-    playing = false;
-    if (animId) { clearTimeout(animId); animId = null; }
-  }
-
+  function play() { if (!playing && grids.length) { playing = true; tick(); } }
+  function pause() { playing = false; if (animId) { clearTimeout(animId); animId = null; } }
   function stop() {
     pause();
-    grids = [];
-    totalFrames = 0;
-    currentFrame = 0;
-    if (ctx && canvas) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
+    grids = []; totalFrames = 0; currentFrame = 0;
+    if (ctx && canvas) ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
 
   function setGridSize(sz) { gridSize = sz; }
+  function setColorCount(cc) {
+    colorCount = cc;
+    palette = Cimbar.paletteFor(cc);
+  }
   function setSpeed(ms) { frameMs = ms; }
   function setRepeat(n) { repeatCount = n; }
 
   function getState() {
     return {
       playing, totalFrames, currentFrame,
-      gridSize, frameMs, repeatCount,
-      bytesPerFrame: Cimbar.bytesPerFrame(gridSize),
+      gridSize, colorCount, frameMs, repeatCount,
+      bytesPerFrame: Cimbar.bytesPerFrame(gridSize, Cimbar.bitsPerCellFor(colorCount)),
     };
   }
 
   return { init, loadFile, play, pause, stop, renderFrame,
-           setGridSize, setSpeed, setRepeat, getState };
+           setGridSize, setColorCount, setSpeed, setRepeat, getState };
 })();
