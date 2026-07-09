@@ -108,12 +108,13 @@
   function renderFrameProgress() {
     const s = DecodeUI.getState();
     if (!s.totalFrames) {
-      frameProgressBar.style.display = 'none';
+      frameProgressBar.style.display = 'flex';
+      frameProgressBar.innerHTML = '<span style="color:var(--text-muted);font-size:0.85rem;padding:4px 8px">等待识别条码…</span>';
       return;
     }
     frameProgressBar.style.display = 'flex';
 
-    let html = '';
+    let html = '<span style="color:var(--text-muted);font-size:0.75rem;padding:2px 6px;margin-right:4px">' + s.receivedCount + '/' + s.totalFrames + '</span>';
     for (let i = 0; i < s.totalFrames; i++) {
       const rcvd = s.receivedSet.has(i);
       html += '<span class="fc ' + (rcvd ? 'rcvd' : 'pend') + '" title="Frame ' + (i+1) + (rcvd ? ' ✓' : ' ...') + '"></span>';
@@ -143,7 +144,6 @@
   btnStartCam.addEventListener('click', async () => {
     try {
       decodeStatus.textContent = 'Starting camera…';
-      frameProgressBar.style.display = 'none';
       await DecodeUI.startCamera(cameraSelect.value);
       decodeStatus.textContent = 'Camera ready — point at barcode';
     } catch (e) { decodeStatus.textContent = 'Camera error: ' + e.message; }
