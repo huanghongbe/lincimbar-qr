@@ -1,0 +1,214 @@
+/* style.css — Modern dark theme for libcimbar HTML project */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-hover: #79c0ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --radius: 8px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+header {
+  width: 100%;
+  max-width: 900px;
+  padding: 24px 20px 0;
+  text-align: center;
+}
+header h1 {
+  font-size: 1.8rem;
+  color: var(--accent);
+  letter-spacing: -0.5px;
+}
+header p {
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-size: 0.9rem;
+}
+
+/* Tabs */
+nav.tabs {
+  display: flex;
+  gap: 0;
+  margin-top: 20px;
+  border-bottom: 2px solid var(--border);
+  width: 100%;
+  max-width: 900px;
+  padding: 0 20px;
+}
+nav.tabs button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  padding: 10px 24px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color .15s, border-color .15s;
+  font-family: var(--font);
+}
+nav.tabs button:hover { color: var(--text); }
+nav.tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Panels */
+main {
+  width: 100%;
+  max-width: 900px;
+  padding: 20px;
+  flex: 1;
+}
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* Card */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 16px;
+}
+
+/* Encode */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  margin-bottom: 16px;
+}
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.05);
+}
+.drop-zone .icon { font-size: 2rem; margin-bottom: 8px; }
+.drop-zone p { color: var(--text-muted); font-size: 0.9rem; }
+.drop-zone .browse { color: var(--accent); text-decoration: underline; }
+
+.canvas-wrap {
+  background: #000;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  margin-bottom: 16px;
+  min-height: 300px;
+}
+#encode-canvas {
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.controls button {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background .15s;
+  font-family: var(--font);
+}
+.controls button:hover { background: var(--border); }
+.controls button.primary {
+  background: #238636;
+  border-color: #238636;
+  color: #fff;
+}
+.controls button.primary:hover { background: #2ea043; }
+.controls button.danger { background: #da3633; border-color: #da3633; color: #fff; }
+.controls button.danger:hover { background: #f85149; }
+
+.controls label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.controls select, .controls input[type=range] {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+
+.status-bar {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Decode */
+.video-wrap {
+  position: relative;
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 16px;
+  aspect-ratio: 4 / 3;
+  max-height: 450px;
+}
+#decode-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+#decode-preview {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+/* Footer */
+footer {
+  padding: 16px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  header h1 { font-size: 1.3rem; }
+  .controls { flex-direction: column; align-items: stretch; }
+  .controls button { width: 100%; }
+}

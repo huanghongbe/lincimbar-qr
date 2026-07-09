@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>libcimbar — 彩色条码文件传输</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body data-tab="encode">
+
+<header>
+  <h1>libcimbar</h1>
+  <p>基于彩色矩阵条码的文件传输 — 选择文件生成动画条码，手机扫码即可接收</p>
+  <nav class="tabs">
+    <button id="tab-encode" class="active">📤 编码 / 发送</button>
+    <button id="tab-decode">📥 解码 / 接收</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ====== Encode Panel ====== -->
+  <section class="panel active" id="panel-encode">
+    <div class="card">
+      <div class="drop-zone" id="drop-zone">
+        <div class="icon">📁</div>
+        <p>拖拽文件到此处，或 <span class="browse">点击浏览</span></p>
+        <input type="file" id="file-input" hidden>
+      </div>
+
+      <div class="canvas-wrap">
+        <canvas id="encode-canvas" width="600" height="600"></canvas>
+      </div>
+
+      <div class="controls">
+        <button id="btn-play" class="primary">▶ 播放</button>
+        <button id="btn-pause">⏸ 暂停</button>
+        <button id="btn-stop" class="danger">⏹ 停止</button>
+        <label>速度 <input type="range" id="speed-slider" min="100" max="1000" value="300" step="50"></label>
+        <span id="speed-label">300ms</span>
+        <label>网格
+          <select id="grid-select">
+            <option value="24">24×24</option>
+            <option value="30" selected>30×30</option>
+            <option value="36">36×36</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="status-bar">
+        <span id="encode-status">选择文件以开始</span>
+        <span id="encode-progress"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== Decode Panel ====== -->
+  <section class="panel" id="panel-decode">
+    <div class="card">
+      <div class="video-wrap">
+        <video id="decode-video" playsinline autoplay muted></video>
+        <canvas id="decode-preview" width="640" height="480"></canvas>
+      </div>
+
+      <div class="controls">
+        <button id="btn-start-cam" class="primary">📷 打开摄像头</button>
+        <button id="btn-stop-cam">⏹ 关闭</button>
+        <button id="btn-scan">🔍 开始扫描</button>
+        <button id="btn-pause-scan">⏸ 暂停扫描</button>
+        <label>摄像头
+          <select id="camera-select">
+            <option value="environment">后置</option>
+            <option value="user">前置</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="status-bar">
+        <span id="decode-status">就绪</span>
+        <span id="decode-progress"></span>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <span>libcimbar — Color Icon Matrix Barcode · 基于 <a href="https://github.com/sz3/libcimbar" style="color:var(--accent)">sz3/libcimbar</a> 概念实现</span>
+</footer>
+
+<script src="js/core.js"></script>
+<script src="js/encode.js"></script>
+<script src="js/decode.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

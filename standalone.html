@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>libcimbar — 彩色条码文件传输</title>
+<style>
+/* style.css — Modern dark theme for libcimbar HTML project */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-hover: #79c0ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --radius: 8px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+header {
+  width: 100%;
+  max-width: 900px;
+  padding: 24px 20px 0;
+  text-align: center;
+}
+header h1 {
+  font-size: 1.8rem;
+  color: var(--accent);
+  letter-spacing: -0.5px;
+}
+header p {
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-size: 0.9rem;
+}
+
+/* Tabs */
+nav.tabs {
+  display: flex;
+  gap: 0;
+  margin-top: 20px;
+  border-bottom: 2px solid var(--border);
+  width: 100%;
+  max-width: 900px;
+  padding: 0 20px;
+}
+nav.tabs button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  padding: 10px 24px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color .15s, border-color .15s;
+  font-family: var(--font);
+}
+nav.tabs button:hover { color: var(--text); }
+nav.tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Panels */
+main {
+  width: 100%;
+  max-width: 900px;
+  padding: 20px;
+  flex: 1;
+}
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* Card */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 16px;
+}
+
+/* Encode */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  margin-bottom: 16px;
+}
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.05);
+}
+.drop-zone .icon { font-size: 2rem; margin-bottom: 8px; }
+.drop-zone p { color: var(--text-muted); font-size: 0.9rem; }
+.drop-zone .browse { color: var(--accent); text-decoration: underline; }
+
+.canvas-wrap {
+  background: #000;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  margin-bottom: 16px;
+  min-height: 300px;
+}
+#encode-canvas {
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.controls button {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background .15s;
+  font-family: var(--font);
+}
+.controls button:hover { background: var(--border); }
+.controls button.primary {
+  background: #238636;
+  border-color: #238636;
+  color: #fff;
+}
+.controls button.primary:hover { background: #2ea043; }
+.controls button.danger { background: #da3633; border-color: #da3633; color: #fff; }
+.controls button.danger:hover { background: #f85149; }
+
+.controls label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.controls select, .controls input[type=range] {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+
+.status-bar {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Decode */
+.video-wrap {
+  position: relative;
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 16px;
+  aspect-ratio: 4 / 3;
+  max-height: 450px;
+}
+#decode-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+#decode-preview {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+/* Footer */
+footer {
+  padding: 16px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  header h1 { font-size: 1.3rem; }
+  .controls { flex-direction: column; align-items: stretch; }
+  .controls button { width: 100%; }
+}
+
+</style>
+</head>
+<body data-tab="encode">
+
+<header>
+  <h1>libcimbar</h1>
+  <p>基于彩色矩阵条码的文件传输 — 选择文件生成动画条码，手机扫码即可接收</p>
+  <nav class="tabs">
+    <button id="tab-encode" class="active">📤 编码 / 发送</button>
+    <button id="tab-decode">📥 解码 / 接收</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ====== Encode Panel ====== -->
+  <section class="panel active" id="panel-encode">
+    <div class="card">
+      <div class="drop-zone" id="drop-zone">
+        <div class="icon">📁</div>
+        <p>拖拽文件到此处，或 <span class="browse">点击浏览</span></p>
+        <input type="file" id="file-input" hidden>
+      </div>
+
+      <div class="canvas-wrap">
+        <canvas id="encode-canvas" width="600" height="600"></canvas>
+      </div>
+
+      <div class="controls">
+        <button id="btn-play" class="primary">▶ 播放</button>
+        <button id="btn-pause">⏸ 暂停</button>
+        <button id="btn-stop" class="danger">⏹ 停止</button>
+        <label>速度 <input type="range" id="speed-slider" min="100" max="1000" value="300" step="50"></label>
+        <span id="speed-label">300ms</span>
+        <label>网格
+          <select id="grid-select">
+            <option value="24">24×24</option>
+            <option value="30" selected>30×30</option>
+            <option value="36">36×36</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="status-bar">
+        <span id="encode-status">选择文件以开始</span>
+        <span id="encode-progress"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== Decode Panel ====== -->
+  <section class="panel" id="panel-decode">
+    <div class="card">
+      <div class="video-wrap">
+        <video id="decode-video" playsinline autoplay muted></video>
+        <canvas id="decode-preview" width="640" height="480"></canvas>
+      </div>
+
+      <div class="controls">
+        <button id="btn-start-cam" class="primary">📷 打开摄像头</button>
+        <button id="btn-stop-cam">⏹ 关闭</button>
+        <button id="btn-scan">🔍 开始扫描</button>
+        <button id="btn-pause-scan">⏸ 暂停扫描</button>
+        <label>摄像头
+          <select id="camera-select">
+            <option value="environment">后置</option>
+            <option value="user">前置</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="status-bar">
+        <span id="decode-status">就绪</span>
+        <span id="decode-progress"></span>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <span>libcimbar — Color Icon Matrix Barcode · 基于 <a href="https://github.com/sz3/libcimbar" style="color:var(--accent)">sz3/libcimbar</a> 概念实现</span>
+</footer>
+
+<script>
+/**
+ * libcimbar.js — Core encoding/decoding engine for color barcode file transfer
+ * Based on the cimbar (Color Icon Matrix Barcode) concept by sz3
+ */
+const Cimbar = (() => {
+  'use strict';
+
+  const MAGIC = 0xb4;
+  const VERSION = 0x01;
+
+  const MARKER_COLOR = [0, 140, 140];
+  const DATA_COLORS = [
+    [30, 30, 30],
+    [220, 50, 50],
+    [50, 180, 50],
+    [50, 100, 220],
+  ];
+  const CORNER_MARKER = [255, 255, 255];
+  const BITS_PER_CELL = 2;
+  const BORDER_CELLS = 2;
+  const DEFAULT_GRID = 30;
+
+  function dataCellsPerSide(g) { return g - 2 * BORDER_CELLS; }
+  function totalDataCells(g) { return dataCellsPerSide(g) ** 2; }
+  function bytesPerFrame(g) { return Math.floor((totalDataCells(g) * BITS_PER_CELL) / 8); }
+
+  function crc16(data) {
+    let crc = 0xffff;
+    for (let i = 0; i < data.length; i++) {
+      crc ^= data[i] & 0xff;
+      for (let j = 0; j < 8; j++) {
+        if (crc & 1) crc = (crc >>> 1) ^ 0xa001;
+        else crc >>>= 1;
+      }
+    }
+    return crc & 0xffff;
+  }
+
+  function bytesToBits(bytes) {
+    const bits = [];
+    for (const b of bytes)
+      for (let i = 7; i >= 0; i--) bits.push((b >> i) & 1);
+    return bits;
+  }
+
+  function bitsToBytes(bits) {
+    const bytes = [];
+    for (let i = 0; i + 7 < bits.length; i += 8) {
+      let b = 0;
+      for (let j = 0; j < 8; j++) b = (b << 1) | (bits[i + j] & 1);
+      bytes.push(b);
+    }
+    return new Uint8Array(bytes);
+  }
+
+  function bitsToColor(b0, b1) { return ((b0 & 1) << 1) | (b1 & 1); }
+
+  function createEmptyGrid(n) {
+    const g = new Array(n);
+    for (let i = 0; i < n; i++) g[i] = new Array(n).fill(0);
+    return g;
+  }
+
+  function encodeGrid(frameBytes, gridSize) {
+    const grid = createEmptyGrid(gridSize);
+    const dataSide = dataCellsPerSide(gridSize);
+    const bits = bytesToBits(frameBytes);
+    const maxBits = totalDataCells(gridSize) * BITS_PER_CELL;
+
+    for (let r = 0; r < gridSize; r++) {
+      for (let c = 0; c < gridSize; c++) {
+        const isBorder = r < BORDER_CELLS || r >= gridSize - BORDER_CELLS ||
+                         c < BORDER_CELLS || c >= gridSize - BORDER_CELLS;
+        if (isBorder) {
+          grid[r][c] = -1;
+        } else {
+          const cellIdx = (r - BORDER_CELLS) * dataSide + (c - BORDER_CELLS);
+          const base = cellIdx * BITS_PER_CELL;
+          if (base + 1 < maxBits && base + 1 < bits.length)
+            grid[r][c] = bitsToColor(bits[base], bits[base + 1]);
+          else
+            grid[r][c] = 0;
+        }
+      }
+    }
+
+    // White corner markers on 3 corners (bottom-right stays marker for orientation)
+    for (let r = 0; r < 2; r++)
+      for (let c = 0; c < 2; c++) grid[r][c] = 4;
+    for (let r = 0; r < 2; r++)
+      for (let c = gridSize - 2; c < gridSize; c++) grid[r][c] = 4;
+    for (let r = gridSize - 2; r < gridSize; r++)
+      for (let c = 0; c < 2; c++) grid[r][c] = 4;
+
+    return grid;
+  }
+
+  function getCellColor(v) {
+    if (v === -1) return MARKER_COLOR;
+    if (v === 4) return CORNER_MARKER;
+    return DATA_COLORS[v] || DATA_COLORS[0];
+  }
+
+  function renderGrid(ctx, grid, canvasSize) {
+    const gs = grid.length;
+    const cs = canvasSize / gs;
+    ctx.clearRect(0, 0, canvasSize, canvasSize);
+    for (let r = 0; r < gs; r++) {
+      for (let c = 0; c < gs; c++) {
+        const [cr, cg, cb] = getCellColor(grid[r][c]);
+        ctx.fillStyle = 'rgb(' + cr + ',' + cg + ',' + cb + ')';
+        ctx.fillRect(Math.floor(c * cs), Math.floor(r * cs), Math.ceil(cs), Math.ceil(cs));
+      }
+    }
+  }
+
+  function encodeFile(fileBuffer, fileName, gridSize) {
+    gridSize = gridSize || DEFAULT_GRID;
+    const frameCapacity = bytesPerFrame(gridSize);
+    const overhead = 10;
+    const maxPayload = frameCapacity - overhead;
+    if (maxPayload < 1) throw new Error('Grid too small');
+
+    const fnameBytes = new TextEncoder().encode(fileName);
+    const f0Data = maxPayload - 1 - fnameBytes.length;
+    if (f0Data < 0) throw new Error('Filename too long');
+
+    const remaining = fileBuffer.length - f0Data;
+    const otherFrames = remaining > 0 ? Math.ceil(remaining / maxPayload) : 0;
+    const totalFrames = 1 + otherFrames;
+    const grids = [];
+
+    for (let fi = 0; fi < totalFrames; fi++) {
+      let payload;
+      const flags = fi === 0 ? 1 : 0;
+
+      if (fi === 0) {
+        const dLen = Math.min(f0Data, fileBuffer.length);
+        payload = new Uint8Array(1 + fnameBytes.length + dLen);
+        payload[0] = fnameBytes.length;
+        payload.set(fnameBytes, 1);
+        payload.set(fileBuffer.subarray(0, dLen), 1 + fnameBytes.length);
+      } else {
+        const start = f0Data + (fi - 1) * maxPayload;
+        const end = Math.min(start + maxPayload, fileBuffer.length);
+        payload = fileBuffer.subarray(start, end);
+      }
+
+      const fb = new Uint8Array(8 + payload.length + 2);
+      fb[0] = MAGIC; fb[1] = VERSION; fb[2] = fi; fb[3] = totalFrames;
+      fb[4] = (payload.length >> 8) & 0xff; fb[5] = payload.length & 0xff;
+      fb[6] = flags; fb[7] = 0;
+      fb.set(payload, 8);
+      const crc = crc16(fb.subarray(0, 8 + payload.length));
+      fb[8 + payload.length] = (crc >> 8) & 0xff;
+      fb[8 + payload.length + 1] = crc & 0xff;
+      grids.push(encodeGrid(fb, gridSize));
+    }
+
+    return { grids, totalFrames, fileName };
+  }
+
+  function isMarkerColor(r, g, b) {
+    const dr = r / 255, dg = g / 255, db = b / 255;
+    return dr < 0.35 && Math.abs(dg - db) < 0.3 && dg > 0.25 && db > 0.25;
+  }
+
+  function classifyCellColor(r, g, b) {
+    let best = 0, bestDist = Infinity;
+    for (let i = 0; i < DATA_COLORS.length; i++) {
+      const [cr, cg, cb] = DATA_COLORS[i];
+      const d = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+      if (d < bestDist) { bestDist = d; best = i; }
+    }
+    return best;
+  }
+
+  function findGridCorners(imageData, width, height) {
+    const pixels = imageData.data;
+    const pts = [];
+    for (let y = 0; y < height; y += 2) {
+      for (let x = 0; x < width; x += 2) {
+        const i = (y * width + x) * 4;
+        if (isMarkerColor(pixels[i], pixels[i + 1], pixels[i + 2]))
+          pts.push({ x, y });
+      }
+    }
+    if (pts.length < 50) return null;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
+    }
+
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    const hw = (maxX - minX) / 2, hh = (maxY - minY) / 2;
+    const filtered = pts.filter(p =>
+      Math.abs(p.x - cx) < hw * 0.9 && Math.abs(p.y - cy) < hh * 0.9
+    );
+    if (filtered.length < 30) return null;
+
+    minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
+    for (const p of filtered) {
+      if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
+    }
+    if (maxX - minX < 30 || maxY - minY < 30) return null;
+    if ((maxX - minX) / (maxY - minY) > 2.5 || (maxY - minY) / (maxX - minX) > 2.5) return null;
+
+    return [{ x: minX, y: minY }, { x: maxX, y: minY },
+            { x: minX, y: maxY }, { x: maxX, y: maxY }];
+  }
+
+  function mapPoint(corners, u, v) {
+    const [tl, tr, bl, br] = corners;
+    return {
+      x: tl.x * (1 - u) * (1 - v) + tr.x * u * (1 - v) + bl.x * (1 - u) * v + br.x * u * v,
+      y: tl.y * (1 - u) * (1 - v) + tr.y * u * (1 - v) + bl.y * (1 - u) * v + br.y * u * v,
+    };
+  }
+
+  function sampleGrid(imageData, imgWidth, imgHeight, corners, gridSize) {
+    const grid = createEmptyGrid(gridSize);
+    const pixels = imageData.data;
+    for (let r = 0; r < gridSize; r++) {
+      for (let c = 0; c < gridSize; c++) {
+        const u = (c + 0.5) / gridSize, v = (r + 0.5) / gridSize;
+        const pt = mapPoint(corners, u, v);
+        const sx = Math.round(pt.x), sy = Math.round(pt.y);
+        if (sx < 0 || sx >= imgWidth || sy < 0 || sy >= imgHeight) continue;
+        const idx = (sy * imgWidth + sx) * 4;
+        const pr = pixels[idx], pg = pixels[idx + 1], pb = pixels[idx + 2];
+        const isBorder = r < BORDER_CELLS || r >= gridSize - BORDER_CELLS ||
+                         c < BORDER_CELLS || c >= gridSize - BORDER_CELLS;
+        if (isBorder) {
+          grid[r][c] = ((pr - 255) ** 2 + (pg - 255) ** 2 + (pb - 255) ** 2) < 15000 ? 4 : -1;
+        } else {
+          grid[r][c] = classifyCellColor(pr, pg, pb);
+        }
+      }
+    }
+    return grid;
+  }
+
+  function decodeGrid(grid, gridSize) {
+    const bits = [];
+    for (let r = 0; r < gridSize; r++) {
+      for (let c = 0; c < gridSize; c++) {
+        const isBorder = r < BORDER_CELLS || r >= gridSize - BORDER_CELLS ||
+                         c < BORDER_CELLS || c >= gridSize - BORDER_CELLS;
+        if (isBorder) continue;
+        const ci = grid[r][c];
+        if (ci < 0 || ci >= DATA_COLORS.length) { bits.push(0, 0); }
+        else { bits.push((ci >> 1) & 1, ci & 1); }
+      }
+    }
+    const fb = bitsToBytes(bits);
+    if (fb.length < 10 || fb[0] !== MAGIC) return null;
+    const frameIdx = fb[2], totalFrames = fb[3];
+    const payloadLen = (fb[4] << 8) | fb[5];
+    const flags = fb[6], hasFilename = !!(flags & 1);
+    if (8 + payloadLen + 2 > fb.length) return null;
+    const crcData = fb.subarray(0, 8 + payloadLen);
+    const expCrc = (fb[8 + payloadLen] << 8) | fb[8 + payloadLen + 1];
+    if (crc16(crcData) !== expCrc) return null;
+    const payload = fb.subarray(8, 8 + payloadLen);
+    return { frameIdx, totalFrames, hasFilename, payload, version: fb[1] };
+  }
+
+  return {
+    MAGIC, VERSION, MARKER_COLOR, DATA_COLORS, CORNER_MARKER,
+    BITS_PER_CELL, BORDER_CELLS, DEFAULT_GRID,
+    bytesPerFrame, crc16, encodeFile, renderGrid,
+    findGridCorners, sampleGrid, decodeGrid,
+    getCellColor, classifyCellColor,
+  };
+})();
+
+</script>
+<script>
+/**
+ * encode.js — File → animate color barcode on screen
+ */
+const EncodeUI = (() => {
+  'use strict';
+
+  let grids = [], totalFrames = 0, currentFrame = 0;
+  let animId = null, playing = false;
+  let gridSize = Cimbar.DEFAULT_GRID;
+  let frameMs = 300, repeatCount = 2;
+  let canvas, ctx, canvasSize = 600;
+
+  function init(canvasEl, size) {
+    canvas = canvasEl;
+    ctx = canvas.getContext('2d');
+    canvasSize = size || 600;
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+  }
+
+  async function loadFile(file) {
+    stop();
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    const result = Cimbar.encodeFile(bytes, file.name, gridSize);
+    grids = result.grids;
+    totalFrames = result.totalFrames;
+    currentFrame = 0;
+    return result;
+  }
+
+  function renderFrame(idx) {
+    if (!grids.length) return;
+    const i = idx % totalFrames;
+    Cimbar.renderGrid(ctx, grids[i], canvasSize);
+  }
+
+  function tick() {
+    if (!playing || !grids.length) return;
+    renderFrame(currentFrame);
+    currentFrame = (currentFrame + 1) % totalFrames;
+    animId = setTimeout(tick, frameMs);
+  }
+
+  function play() {
+    if (playing || !grids.length) return;
+    playing = true;
+    tick();
+  }
+
+  function pause() {
+    playing = false;
+    if (animId) { clearTimeout(animId); animId = null; }
+  }
+
+  function stop() {
+    pause();
+    grids = [];
+    totalFrames = 0;
+    currentFrame = 0;
+    if (ctx && canvas) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }
+
+  function setGridSize(sz) { gridSize = sz; }
+  function setSpeed(ms) { frameMs = ms; }
+  function setRepeat(n) { repeatCount = n; }
+
+  function getState() {
+    return {
+      playing, totalFrames, currentFrame,
+      gridSize, frameMs, repeatCount,
+      bytesPerFrame: Cimbar.bytesPerFrame(gridSize),
+    };
+  }
+
+  return { init, loadFile, play, pause, stop, renderFrame,
+           setGridSize, setSpeed, setRepeat, getState };
+})();
+
+</script>
+<script>
+/**
+ * decode.js — Camera scanner + file reconstruction for cimbar color barcodes
+ */
+const DecodeUI = (() => {
+  'use strict';
+
+  let videoEl, previewCanvas, previewCtx;
+  let scanCanvas, scanCtx;
+  let stream = null, scanning = false, scanTimer = null;
+  let gridSize = Cimbar.DEFAULT_GRID;
+  let frameData = {}, receivedFrames = new Set(), totalFrames = null;
+  let fileName = null, lastFrameIdx = -1, finished = false;
+
+  function init(videoElement, previewCanvasEl, scanWidth, scanHeight) {
+    videoEl = videoElement;
+    previewCanvas = previewCanvasEl;
+    previewCtx = previewCanvas.getContext('2d');
+    scanCanvas = document.createElement('canvas');
+    scanCanvas.width = scanWidth || 400;
+    scanCanvas.height = scanHeight || 300;
+    scanCtx = scanCanvas.getContext('2d');
+  }
+
+  async function startCamera(facingMode) {
+    stopCamera();
+    const constraints = {
+      video: { facingMode: facingMode || 'environment', width: {ideal:1280}, height: {ideal:720} },
+      audio: false,
+    };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    videoEl.srcObject = stream;
+    await videoEl.play();
+  }
+
+  function stopCamera() {
+    scanning = false;
+    if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    if (videoEl) videoEl.srcObject = null;
+    resetAccumulator();
+  }
+
+  function resetAccumulator() {
+    frameData = {}; receivedFrames = new Set(); totalFrames = null;
+    fileName = null; lastFrameIdx = -1; finished = false;
+  }
+
+  function drawPreview() {
+    if (!videoEl || !previewCtx || videoEl.readyState < 2) return;
+    const vw = videoEl.videoWidth, vh = videoEl.videoHeight;
+    const pw = previewCanvas.width, ph = previewCanvas.height;
+    const scale = Math.min(pw / vw, ph / vh);
+    const dx = (pw - vw * scale) / 2, dy = (ph - vh * scale) / 2;
+    previewCtx.clearRect(0, 0, pw, ph);
+    previewCtx.drawImage(videoEl, dx, dy, vw * scale, vh * scale);
+  }
+
+  function processFrame() {
+    if (!scanning || !videoEl || videoEl.readyState < 2) return;
+    drawPreview();
+    const sw = scanCanvas.width, sh = scanCanvas.height;
+    scanCtx.drawImage(videoEl, 0, 0, sw, sh);
+    const imageData = scanCtx.getImageData(0, 0, sw, sh);
+    const corners = Cimbar.findGridCorners(imageData, sw, sh);
+    if (!corners) return;
+    const grid = Cimbar.sampleGrid(imageData, sw, sh, corners, gridSize);
+    const frame = Cimbar.decodeGrid(grid, gridSize);
+    if (!frame) return;
+    if (frame.frameIdx === lastFrameIdx) return;
+    lastFrameIdx = frame.frameIdx;
+
+    if (totalFrames === null) totalFrames = frame.totalFrames;
+
+    if (!receivedFrames.has(frame.frameIdx)) {
+      receivedFrames.add(frame.frameIdx);
+      frameData[frame.frameIdx] = frame;
+      if (frame.hasFilename && frame.payload && frame.payload.length > 1) {
+        const fLen = frame.payload[0];
+        if (fLen > 0 && fLen < frame.payload.length)
+          fileName = new TextDecoder().decode(frame.payload.subarray(1, 1 + fLen));
+      }
+    }
+
+    drawOverlay(corners);
+
+    if (receivedFrames.size >= totalFrames) finishScan();
+    return { frameIdx: frame.frameIdx, totalFrames, received: receivedFrames.size };
+  }
+
+  function drawOverlay(corners) {
+    if (!previewCtx || !corners) return;
+    const pw = previewCanvas.width, ph = previewCanvas.height;
+    const sw = scanCanvas.width, sh = scanCanvas.height;
+    const sx = pw / sw, sy = ph / sh;
+    previewCtx.strokeStyle = '#00ff88'; previewCtx.lineWidth = 2;
+    previewCtx.beginPath();
+    previewCtx.moveTo(corners[0].x*sx, corners[0].y*sy);
+    previewCtx.lineTo(corners[1].x*sx, corners[1].y*sy);
+    previewCtx.lineTo(corners[3].x*sx, corners[3].y*sy);
+    previewCtx.lineTo(corners[2].x*sx, corners[2].y*sy);
+    previewCtx.closePath(); previewCtx.stroke();
+  }
+
+  function startScan() {
+    if (!stream) return;
+    scanning = true; resetAccumulator();
+    scanTimer = setInterval(processFrame, 100);
+  }
+
+  function pauseScan() {
+    scanning = false;
+    if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+  }
+
+  function finishScan() {
+    if (finished) return;
+    finished = true;
+    pauseScan();
+
+    const payloads = [];
+    for (let i = 0; i < totalFrames; i++) {
+      const f = frameData[i];
+      if (!f) return;
+      if (f.hasFilename) {
+        const fLen = f.payload[0];
+        payloads.push(f.payload.subarray(1 + fLen));
+      } else {
+        payloads.push(f.payload);
+      }
+    }
+
+    let totalLen = 0;
+    for (const p of payloads) totalLen += p.length;
+    const result = new Uint8Array(totalLen);
+    let offset = 0;
+    for (const p of payloads) { result.set(p, offset); offset += p.length; }
+
+    const blob = new Blob([result]);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fileName || 'received_file';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    return { fileName, size: result.length };
+  }
+
+  function setGridSize(sz) { gridSize = sz; }
+
+  function getState() {
+    return { scanning, totalFrames, receivedCount: receivedFrames.size, fileName, gridSize };
+  }
+
+  return { init, startCamera, stopCamera, startScan, pauseScan, processFrame,
+           resetAccumulator, finishScan, setGridSize, getState };
+})();
+
+</script>
+<script>
+/**
+ * app.js — Main application: tab switching, UI wiring, initialization
+ */
+(function () {
+  'use strict';
+
+  const GRID_SIZE = Cimbar.DEFAULT_GRID;
+  const BARCODE_SIZE = 600;
+  const $ = (sel) => document.querySelector(sel);
+
+  const tabEncode = $('#tab-encode'), tabDecode = $('#tab-decode');
+  const panelEncode = $('#panel-encode'), panelDecode = $('#panel-decode');
+  const fileInput = $('#file-input'), dropZone = $('#drop-zone');
+  const encodeCanvas = $('#encode-canvas');
+  const btnPlay = $('#btn-play'), btnPause = $('#btn-pause'), btnStop = $('#btn-stop');
+  const encodeStatus = $('#encode-status'), encodeProgress = $('#encode-progress');
+  const speedSlider = $('#speed-slider'), speedLabel = $('#speed-label');
+  const gridSelect = $('#grid-select');
+  const decodeVideo = $('#decode-video'), decodePreview = $('#decode-preview');
+  const btnStartCam = $('#btn-start-cam'), btnStopCam = $('#btn-stop-cam');
+  const btnScan = $('#btn-scan'), btnPauseScan = $('#btn-pause-scan');
+  const decodeStatus = $('#decode-status'), decodeProgress = $('#decode-progress');
+  const cameraSelect = $('#camera-select');
+
+  let encodeInterval = null, decodeInterval = null;
+
+  function clearEncodeInterval() {
+    if (encodeInterval) { clearInterval(encodeInterval); encodeInterval = null; }
+  }
+  function clearDecodeInterval() {
+    if (decodeInterval) { clearInterval(decodeInterval); decodeInterval = null; }
+  }
+
+  EncodeUI.init(encodeCanvas, BARCODE_SIZE);
+  DecodeUI.init(decodeVideo, decodePreview, 400, 300);
+
+  // --- Tab switching ---
+  function switchTab(tab) {
+    clearEncodeInterval(); clearDecodeInterval();
+    if (tab === 'encode') {
+      tabEncode.classList.add('active'); tabDecode.classList.remove('active');
+      panelEncode.classList.add('active'); panelDecode.classList.remove('active');
+      DecodeUI.stopCamera(); EncodeUI.pause();
+    } else {
+      tabDecode.classList.add('active'); tabEncode.classList.remove('active');
+      panelDecode.classList.add('active'); panelEncode.classList.remove('active');
+    }
+    document.body.dataset.tab = tab;
+  }
+  tabEncode.addEventListener('click', () => switchTab('encode'));
+  tabDecode.addEventListener('click', () => switchTab('decode'));
+
+  // --- Encode Panel ---
+  function updateEncodeStatus() {
+    const s = EncodeUI.getState();
+    encodeProgress.textContent = s.totalFrames
+      ? 'Frame ' + (s.currentFrame+1) + ' / ' + s.totalFrames + '  |  ' + s.bytesPerFrame + ' B/frame' : '';
+    encodeStatus.textContent = s.totalFrames
+      ? (s.playing ? 'Animating…' : 'Paused') : 'Select a file to begin';
+  }
+
+  async function handleFile(file) {
+    clearEncodeInterval();
+    try {
+      encodeStatus.textContent = 'Encoding…';
+      const result = await EncodeUI.loadFile(file);
+      const s = EncodeUI.getState();
+      encodeStatus.textContent = 'Ready — ' + result.totalFrames + ' frames, ' + s.bytesPerFrame + ' bytes each';
+      EncodeUI.renderFrame(0); updateEncodeStatus();
+    } catch (e) { encodeStatus.textContent = 'Error: ' + e.message; }
+  }
+
+  fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+  dropZone.addEventListener('click', () => fileInput.click());
+
+  btnPlay.addEventListener('click', () => {
+    EncodeUI.play(); updateEncodeStatus();
+    clearEncodeInterval();
+    encodeInterval = setInterval(updateEncodeStatus, 400);
+  });
+  btnPause.addEventListener('click', () => { EncodeUI.pause(); clearEncodeInterval(); updateEncodeStatus(); });
+  btnStop.addEventListener('click', () => { EncodeUI.stop(); clearEncodeInterval(); updateEncodeStatus(); });
+
+  speedSlider.addEventListener('input', () => {
+    const ms = parseInt(speedSlider.value);
+    EncodeUI.setSpeed(ms); speedLabel.textContent = ms + 'ms';
+  });
+  EncodeUI.setSpeed(parseInt(speedSlider.value));
+
+  gridSelect.addEventListener('change', () => {
+    const sz = parseInt(gridSelect.value);
+    EncodeUI.setGridSize(sz); DecodeUI.setGridSize(sz);
+    encodeStatus.textContent = 'Grid changed — reselect file to re-encode';
+  });
+
+  // --- Decode Panel ---
+  function updateDecodeStatus() {
+    const s = DecodeUI.getState();
+    if (s.totalFrames) decodeProgress.textContent = s.receivedCount + ' / ' + s.totalFrames + ' frames';
+    if (s.totalFrames && s.receivedCount >= s.totalFrames) {
+      decodeStatus.textContent = 'File received: ' + (s.fileName || 'unknown');
+      clearDecodeInterval();
+      return;
+    }
+    decodeStatus.textContent = s.scanning ? 'Scanning…' : (s.totalFrames ? 'Paused' : 'Ready');
+  }
+
+  btnStartCam.addEventListener('click', async () => {
+    try {
+      decodeStatus.textContent = 'Starting camera…';
+      await DecodeUI.startCamera(cameraSelect.value);
+      decodeStatus.textContent = 'Camera ready — point at barcode';
+    } catch (e) { decodeStatus.textContent = 'Camera error: ' + e.message; }
+  });
+  btnStopCam.addEventListener('click', () => { DecodeUI.stopCamera(); clearDecodeInterval(); decodeStatus.textContent = 'Camera stopped'; decodeProgress.textContent = ''; });
+  btnScan.addEventListener('click', () => {
+    DecodeUI.startScan(); updateDecodeStatus();
+    clearDecodeInterval();
+    decodeInterval = setInterval(updateDecodeStatus, 300);
+  });
+  btnPauseScan.addEventListener('click', () => { DecodeUI.pauseScan(); clearDecodeInterval(); updateDecodeStatus(); });
+
+  // --- Init ---
+  switchTab('encode');
+})();
+
+</script>
+
+</body>
+</html>
