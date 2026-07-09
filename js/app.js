@@ -32,9 +32,8 @@
   }
 
   EncodeUI.init(encodeCanvas, BARCODE_SIZE);
-  DecodeUI.init(decodeVideo, decodePreview, 400, 300);
+  DecodeUI.init(decodeVideo, decodePreview, 640, 480);
 
-  // --- Tab switching ---
   function switchTab(tab) {
     clearEncodeInterval(); clearDecodeInterval();
     if (tab === 'encode') {
@@ -50,7 +49,6 @@
   tabEncode.addEventListener('click', () => switchTab('encode'));
   tabDecode.addEventListener('click', () => switchTab('decode'));
 
-  // --- Encode Panel ---
   function updateEncodeStatus() {
     const s = EncodeUI.getState();
     encodeProgress.textContent = s.totalFrames
@@ -99,7 +97,6 @@
     encodeStatus.textContent = 'Grid changed — reselect file to re-encode';
   });
 
-  // --- Decode Panel ---
   function updateDecodeStatus() {
     const s = DecodeUI.getState();
     if (s.totalFrames) decodeProgress.textContent = s.receivedCount + ' / ' + s.totalFrames + ' frames';
@@ -126,6 +123,5 @@
   });
   btnPauseScan.addEventListener('click', () => { DecodeUI.pauseScan(); clearDecodeInterval(); updateDecodeStatus(); });
 
-  // --- Init ---
   switchTab('encode');
 })();

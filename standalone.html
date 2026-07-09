@@ -391,7 +391,6 @@ const Cimbar = (() => {
       }
     }
 
-    // White corner markers on 3 corners (bottom-right stays marker for orientation)
     for (let r = 0; r < 2; r++)
       for (let c = 0; c < 2; c++) grid[r][c] = 4;
     for (let r = 0; r < 2; r++)
@@ -467,9 +466,12 @@ const Cimbar = (() => {
     return { grids, totalFrames, fileName };
   }
 
+  // Relaxed teal detection — red is low but not necessarily < 89
   function isMarkerColor(r, g, b) {
-    const dr = r / 255, dg = g / 255, db = b / 255;
-    return dr < 0.35 && Math.abs(dg - db) < 0.3 && dg > 0.25 && db > 0.25;
+    // Teal = low red, balanced green & blue
+    if (g < 40 || b < 40 || r > g + 30 || r > b + 30) return false;
+    const dg = g / 255, db = b / 255;
+    return Math.abs(dg - db) < 0.4;
   }
 
   function classifyCellColor(r, g, b) {
@@ -485,14 +487,15 @@ const Cimbar = (() => {
   function findGridCorners(imageData, width, height) {
     const pixels = imageData.data;
     const pts = [];
-    for (let y = 0; y < height; y += 2) {
-      for (let x = 0; x < width; x += 2) {
+    // Sample every pixel for better detection (skip only every other row for perf)
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
         const i = (y * width + x) * 4;
         if (isMarkerColor(pixels[i], pixels[i + 1], pixels[i + 2]))
           pts.push({ x, y });
       }
     }
-    if (pts.length < 50) return null;
+    if (pts.length < 20) return null;
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const p of pts) {
@@ -500,20 +503,10 @@ const Cimbar = (() => {
       if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
     }
 
-    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-    const hw = (maxX - minX) / 2, hh = (maxY - minY) / 2;
-    const filtered = pts.filter(p =>
-      Math.abs(p.x - cx) < hw * 0.9 && Math.abs(p.y - cy) < hh * 0.9
-    );
-    if (filtered.length < 30) return null;
-
-    minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
-    for (const p of filtered) {
-      if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
-    }
-    if (maxX - minX < 30 || maxY - minY < 30) return null;
-    if ((maxX - minX) / (maxY - minY) > 2.5 || (maxY - minY) / (maxX - minX) > 2.5) return null;
+    const bw = maxX - minX, bh = maxY - minY;
+    if (bw < 20 || bh < 20) return null;
+    // Reject if too narrow
+    if (bw > 3 * bh || bh > 3 * bw) return null;
 
     return [{ x: minX, y: minY }, { x: maxX, y: minY },
             { x: minX, y: maxY }, { x: maxX, y: maxY }];
@@ -681,14 +674,15 @@ const DecodeUI = (() => {
   let gridSize = Cimbar.DEFAULT_GRID;
   let frameData = {}, receivedFrames = new Set(), totalFrames = null;
   let fileName = null, lastFrameIdx = -1, finished = false;
+  let lastCorners = null, debugCount = 0;
 
   function init(videoElement, previewCanvasEl, scanWidth, scanHeight) {
     videoEl = videoElement;
     previewCanvas = previewCanvasEl;
     previewCtx = previewCanvas.getContext('2d');
     scanCanvas = document.createElement('canvas');
-    scanCanvas.width = scanWidth || 400;
-    scanCanvas.height = scanHeight || 300;
+    scanCanvas.width = scanWidth || 640;
+    scanCanvas.height = scanHeight || 480;
     scanCtx = scanCanvas.getContext('2d');
   }
 
@@ -714,6 +708,7 @@ const DecodeUI = (() => {
   function resetAccumulator() {
     frameData = {}; receivedFrames = new Set(); totalFrames = null;
     fileName = null; lastFrameIdx = -1; finished = false;
+    lastCorners = null; debugCount = 0;
   }
 
   function drawPreview() {
@@ -727,17 +722,40 @@ const DecodeUI = (() => {
   }
 
   function processFrame() {
-    if (!scanning || !videoEl || videoEl.readyState < 2) return;
+    if (!scanning || !videoEl || videoEl.readyState < 2) return null;
+
     drawPreview();
+
     const sw = scanCanvas.width, sh = scanCanvas.height;
     scanCtx.drawImage(videoEl, 0, 0, sw, sh);
     const imageData = scanCtx.getImageData(0, 0, sw, sh);
+
     const corners = Cimbar.findGridCorners(imageData, sw, sh);
-    if (!corners) return;
+    if (corners) lastCorners = corners;
+
+    // Always draw debug overlay
+    drawOverlay(lastCorners);
+
+    if (!corners) {
+      debugCount++;
+      return null;
+    }
+
     const grid = Cimbar.sampleGrid(imageData, sw, sh, corners, gridSize);
     const frame = Cimbar.decodeGrid(grid, gridSize);
-    if (!frame) return;
-    if (frame.frameIdx === lastFrameIdx) return;
+
+    if (!frame) {
+      debugCount++;
+      // Show debug: detected but decode failed
+      drawDebugText('DETECTED but CRC fail #' + debugCount);
+      return null;
+    }
+
+    // Success
+    debugCount = 0;
+    drawDebugText('OK frame ' + frame.frameIdx + '/' + frame.totalFrames);
+
+    if (frame.frameIdx === lastFrameIdx) return { frameIdx: frame.frameIdx, totalFrames: totalFrames || frame.totalFrames, received: receivedFrames.size };
     lastFrameIdx = frame.frameIdx;
 
     if (totalFrames === null) totalFrames = frame.totalFrames;
@@ -752,30 +770,48 @@ const DecodeUI = (() => {
       }
     }
 
-    drawOverlay(corners);
-
     if (receivedFrames.size >= totalFrames) finishScan();
     return { frameIdx: frame.frameIdx, totalFrames, received: receivedFrames.size };
   }
 
   function drawOverlay(corners) {
-    if (!previewCtx || !corners) return;
+    if (!previewCtx) return;
     const pw = previewCanvas.width, ph = previewCanvas.height;
     const sw = scanCanvas.width, sh = scanCanvas.height;
     const sx = pw / sw, sy = ph / sh;
-    previewCtx.strokeStyle = '#00ff88'; previewCtx.lineWidth = 2;
-    previewCtx.beginPath();
-    previewCtx.moveTo(corners[0].x*sx, corners[0].y*sy);
-    previewCtx.lineTo(corners[1].x*sx, corners[1].y*sy);
-    previewCtx.lineTo(corners[3].x*sx, corners[3].y*sy);
-    previewCtx.lineTo(corners[2].x*sx, corners[2].y*sy);
-    previewCtx.closePath(); previewCtx.stroke();
+
+    if (corners) {
+      previewCtx.strokeStyle = '#00ff88'; previewCtx.lineWidth = 3;
+      previewCtx.beginPath();
+      previewCtx.moveTo(corners[0].x*sx, corners[0].y*sy);
+      previewCtx.lineTo(corners[1].x*sx, corners[1].y*sy);
+      previewCtx.lineTo(corners[3].x*sx, corners[3].y*sy);
+      previewCtx.lineTo(corners[2].x*sx, corners[2].y*sy);
+      previewCtx.closePath(); previewCtx.stroke();
+
+      // Draw corner dots
+      previewCtx.fillStyle = '#ff0';
+      for (const c of corners) {
+        previewCtx.beginPath();
+        previewCtx.arc(c.x*sx, c.y*sy, 5, 0, Math.PI*2);
+        previewCtx.fill();
+      }
+    }
+  }
+
+  function drawDebugText(msg) {
+    if (!previewCtx) return;
+    previewCtx.fillStyle = 'rgba(0,0,0,0.6)';
+    previewCtx.fillRect(8, 8, 260, 28);
+    previewCtx.fillStyle = '#0f0';
+    previewCtx.font = '16px monospace';
+    previewCtx.fillText(msg, 16, 28);
   }
 
   function startScan() {
     if (!stream) return;
     scanning = true; resetAccumulator();
-    scanTimer = setInterval(processFrame, 100);
+    scanTimer = setInterval(processFrame, 150);
   }
 
   function pauseScan() {
@@ -791,7 +827,7 @@ const DecodeUI = (() => {
     const payloads = [];
     for (let i = 0; i < totalFrames; i++) {
       const f = frameData[i];
-      if (!f) return;
+      if (!f) { drawDebugText('MISSING frame ' + i + '! Keep scanning'); return; }
       if (f.hasFilename) {
         const fLen = f.payload[0];
         payloads.push(f.payload.subarray(1 + fLen));
@@ -814,6 +850,7 @@ const DecodeUI = (() => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
+    drawDebugText('DOWNLOADED: ' + (fileName || 'file') + ' (' + result.length + 'B)');
     return { fileName, size: result.length };
   }
 
@@ -863,9 +900,8 @@ const DecodeUI = (() => {
   }
 
   EncodeUI.init(encodeCanvas, BARCODE_SIZE);
-  DecodeUI.init(decodeVideo, decodePreview, 400, 300);
+  DecodeUI.init(decodeVideo, decodePreview, 640, 480);
 
-  // --- Tab switching ---
   function switchTab(tab) {
     clearEncodeInterval(); clearDecodeInterval();
     if (tab === 'encode') {
@@ -881,7 +917,6 @@ const DecodeUI = (() => {
   tabEncode.addEventListener('click', () => switchTab('encode'));
   tabDecode.addEventListener('click', () => switchTab('decode'));
 
-  // --- Encode Panel ---
   function updateEncodeStatus() {
     const s = EncodeUI.getState();
     encodeProgress.textContent = s.totalFrames
@@ -930,7 +965,6 @@ const DecodeUI = (() => {
     encodeStatus.textContent = 'Grid changed — reselect file to re-encode';
   });
 
-  // --- Decode Panel ---
   function updateDecodeStatus() {
     const s = DecodeUI.getState();
     if (s.totalFrames) decodeProgress.textContent = s.receivedCount + ' / ' + s.totalFrames + ' frames';
@@ -957,7 +991,6 @@ const DecodeUI = (() => {
   });
   btnPauseScan.addEventListener('click', () => { DecodeUI.pauseScan(); clearDecodeInterval(); updateDecodeStatus(); });
 
-  // --- Init ---
   switchTab('encode');
 })();
 

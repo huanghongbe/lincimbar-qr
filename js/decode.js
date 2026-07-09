@@ -10,14 +10,15 @@ const DecodeUI = (() => {
   let gridSize = Cimbar.DEFAULT_GRID;
   let frameData = {}, receivedFrames = new Set(), totalFrames = null;
   let fileName = null, lastFrameIdx = -1, finished = false;
+  let lastCorners = null, debugCount = 0;
 
   function init(videoElement, previewCanvasEl, scanWidth, scanHeight) {
     videoEl = videoElement;
     previewCanvas = previewCanvasEl;
     previewCtx = previewCanvas.getContext('2d');
     scanCanvas = document.createElement('canvas');
-    scanCanvas.width = scanWidth || 400;
-    scanCanvas.height = scanHeight || 300;
+    scanCanvas.width = scanWidth || 640;
+    scanCanvas.height = scanHeight || 480;
     scanCtx = scanCanvas.getContext('2d');
   }
 
@@ -43,6 +44,7 @@ const DecodeUI = (() => {
   function resetAccumulator() {
     frameData = {}; receivedFrames = new Set(); totalFrames = null;
     fileName = null; lastFrameIdx = -1; finished = false;
+    lastCorners = null; debugCount = 0;
   }
 
   function drawPreview() {
@@ -56,17 +58,40 @@ const DecodeUI = (() => {
   }
 
   function processFrame() {
-    if (!scanning || !videoEl || videoEl.readyState < 2) return;
+    if (!scanning || !videoEl || videoEl.readyState < 2) return null;
+
     drawPreview();
+
     const sw = scanCanvas.width, sh = scanCanvas.height;
     scanCtx.drawImage(videoEl, 0, 0, sw, sh);
     const imageData = scanCtx.getImageData(0, 0, sw, sh);
+
     const corners = Cimbar.findGridCorners(imageData, sw, sh);
-    if (!corners) return;
+    if (corners) lastCorners = corners;
+
+    // Always draw debug overlay
+    drawOverlay(lastCorners);
+
+    if (!corners) {
+      debugCount++;
+      return null;
+    }
+
     const grid = Cimbar.sampleGrid(imageData, sw, sh, corners, gridSize);
     const frame = Cimbar.decodeGrid(grid, gridSize);
-    if (!frame) return;
-    if (frame.frameIdx === lastFrameIdx) return;
+
+    if (!frame) {
+      debugCount++;
+      // Show debug: detected but decode failed
+      drawDebugText('DETECTED but CRC fail #' + debugCount);
+      return null;
+    }
+
+    // Success
+    debugCount = 0;
+    drawDebugText('OK frame ' + frame.frameIdx + '/' + frame.totalFrames);
+
+    if (frame.frameIdx === lastFrameIdx) return { frameIdx: frame.frameIdx, totalFrames: totalFrames || frame.totalFrames, received: receivedFrames.size };
     lastFrameIdx = frame.frameIdx;
 
     if (totalFrames === null) totalFrames = frame.totalFrames;
@@ -81,30 +106,48 @@ const DecodeUI = (() => {
       }
     }
 
-    drawOverlay(corners);
-
     if (receivedFrames.size >= totalFrames) finishScan();
     return { frameIdx: frame.frameIdx, totalFrames, received: receivedFrames.size };
   }
 
   function drawOverlay(corners) {
-    if (!previewCtx || !corners) return;
+    if (!previewCtx) return;
     const pw = previewCanvas.width, ph = previewCanvas.height;
     const sw = scanCanvas.width, sh = scanCanvas.height;
     const sx = pw / sw, sy = ph / sh;
-    previewCtx.strokeStyle = '#00ff88'; previewCtx.lineWidth = 2;
-    previewCtx.beginPath();
-    previewCtx.moveTo(corners[0].x*sx, corners[0].y*sy);
-    previewCtx.lineTo(corners[1].x*sx, corners[1].y*sy);
-    previewCtx.lineTo(corners[3].x*sx, corners[3].y*sy);
-    previewCtx.lineTo(corners[2].x*sx, corners[2].y*sy);
-    previewCtx.closePath(); previewCtx.stroke();
+
+    if (corners) {
+      previewCtx.strokeStyle = '#00ff88'; previewCtx.lineWidth = 3;
+      previewCtx.beginPath();
+      previewCtx.moveTo(corners[0].x*sx, corners[0].y*sy);
+      previewCtx.lineTo(corners[1].x*sx, corners[1].y*sy);
+      previewCtx.lineTo(corners[3].x*sx, corners[3].y*sy);
+      previewCtx.lineTo(corners[2].x*sx, corners[2].y*sy);
+      previewCtx.closePath(); previewCtx.stroke();
+
+      // Draw corner dots
+      previewCtx.fillStyle = '#ff0';
+      for (const c of corners) {
+        previewCtx.beginPath();
+        previewCtx.arc(c.x*sx, c.y*sy, 5, 0, Math.PI*2);
+        previewCtx.fill();
+      }
+    }
+  }
+
+  function drawDebugText(msg) {
+    if (!previewCtx) return;
+    previewCtx.fillStyle = 'rgba(0,0,0,0.6)';
+    previewCtx.fillRect(8, 8, 260, 28);
+    previewCtx.fillStyle = '#0f0';
+    previewCtx.font = '16px monospace';
+    previewCtx.fillText(msg, 16, 28);
   }
 
   function startScan() {
     if (!stream) return;
     scanning = true; resetAccumulator();
-    scanTimer = setInterval(processFrame, 100);
+    scanTimer = setInterval(processFrame, 150);
   }
 
   function pauseScan() {
@@ -120,7 +163,7 @@ const DecodeUI = (() => {
     const payloads = [];
     for (let i = 0; i < totalFrames; i++) {
       const f = frameData[i];
-      if (!f) return;
+      if (!f) { drawDebugText('MISSING frame ' + i + '! Keep scanning'); return; }
       if (f.hasFilename) {
         const fLen = f.payload[0];
         payloads.push(f.payload.subarray(1 + fLen));
@@ -143,6 +186,7 @@ const DecodeUI = (() => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
+    drawDebugText('DOWNLOADED: ' + (fileName || 'file') + ' (' + result.length + 'B)');
     return { fileName, size: result.length };
   }
 

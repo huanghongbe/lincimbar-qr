@@ -84,7 +84,6 @@ const Cimbar = (() => {
       }
     }
 
-    // White corner markers on 3 corners (bottom-right stays marker for orientation)
     for (let r = 0; r < 2; r++)
       for (let c = 0; c < 2; c++) grid[r][c] = 4;
     for (let r = 0; r < 2; r++)
@@ -160,9 +159,12 @@ const Cimbar = (() => {
     return { grids, totalFrames, fileName };
   }
 
+  // Relaxed teal detection — red is low but not necessarily < 89
   function isMarkerColor(r, g, b) {
-    const dr = r / 255, dg = g / 255, db = b / 255;
-    return dr < 0.35 && Math.abs(dg - db) < 0.3 && dg > 0.25 && db > 0.25;
+    // Teal = low red, balanced green & blue
+    if (g < 40 || b < 40 || r > g + 30 || r > b + 30) return false;
+    const dg = g / 255, db = b / 255;
+    return Math.abs(dg - db) < 0.4;
   }
 
   function classifyCellColor(r, g, b) {
@@ -178,14 +180,15 @@ const Cimbar = (() => {
   function findGridCorners(imageData, width, height) {
     const pixels = imageData.data;
     const pts = [];
-    for (let y = 0; y < height; y += 2) {
-      for (let x = 0; x < width; x += 2) {
+    // Sample every pixel for better detection (skip only every other row for perf)
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
         const i = (y * width + x) * 4;
         if (isMarkerColor(pixels[i], pixels[i + 1], pixels[i + 2]))
           pts.push({ x, y });
       }
     }
-    if (pts.length < 50) return null;
+    if (pts.length < 20) return null;
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const p of pts) {
@@ -193,20 +196,10 @@ const Cimbar = (() => {
       if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
     }
 
-    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-    const hw = (maxX - minX) / 2, hh = (maxY - minY) / 2;
-    const filtered = pts.filter(p =>
-      Math.abs(p.x - cx) < hw * 0.9 && Math.abs(p.y - cy) < hh * 0.9
-    );
-    if (filtered.length < 30) return null;
-
-    minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
-    for (const p of filtered) {
-      if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
-    }
-    if (maxX - minX < 30 || maxY - minY < 30) return null;
-    if ((maxX - minX) / (maxY - minY) > 2.5 || (maxY - minY) / (maxX - minX) > 2.5) return null;
+    const bw = maxX - minX, bh = maxY - minY;
+    if (bw < 20 || bh < 20) return null;
+    // Reject if too narrow
+    if (bw > 3 * bh || bh > 3 * bw) return null;
 
     return [{ x: minX, y: minY }, { x: maxX, y: minY },
             { x: minX, y: maxY }, { x: maxX, y: maxY }];
