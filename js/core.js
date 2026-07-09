@@ -25,7 +25,6 @@ const Cimbar = (() => {
   function dataCellsPerSide(g) { return g - 2 * BORDER_CELLS; }
   function totalDataCells(g) { return dataCellsPerSide(g) ** 2; }
   function bytesPerFrame(g, bpc) { return Math.floor((totalDataCells(g) * bpc) / 8); }
-
   function paletteFor(colors) { return colors === 8 ? DATA_COLORS_8 : DATA_COLORS_4; }
   function bitsPerCellFor(colors) { return colors === 8 ? 3 : 2; }
 
@@ -178,7 +177,51 @@ const Cimbar = (() => {
     return Math.abs(dg - db) < 0.4;
   }
 
-  function classifyCellColor(r, g, b, palette) {
+  // Sample a small patch around (x,y) and return average RGB
+  function samplePatch(pixels, imgWidth, imgHeight, x, y, radius) {
+    let sr = 0, sg = 0, sb = 0, count = 0;
+    radius = radius || 1;
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const sx = Math.round(x + dx), sy = Math.round(y + dy);
+        if (sx >= 0 && sx < imgWidth && sy >= 0 && sy < imgHeight) {
+          const idx = (sy * imgWidth + sx) * 4;
+          sr += pixels[idx]; sg += pixels[idx + 1]; sb += pixels[idx + 2];
+          count++;
+        }
+      }
+    }
+    return { r: Math.round(sr / count), g: Math.round(sg / count), b: Math.round(sb / count) };
+  }
+
+  // Ratio-based classification: works under varying lighting
+  function classifyCellColorRatio(r, g, b, palette) {
+    const total = r + g + b || 1;
+    const rr = r / total, gg = g / total, bb = b / total;
+    const maxC = Math.max(r, g, b);
+    const minC = Math.min(r, g, b);
+
+    if (maxC < 50) return 0; // black
+    if (minC > 180 && maxC - minC < 40) return palette.length > 4 ? 7 : 0; // white or fallback
+
+    if (palette.length <= 4) {
+      // 4-color mode: use simple channel dominance
+      if (rr > 0.4 && gg < 0.3 && bb < 0.3) return 1; // red
+      if (gg > 0.4 && rr < 0.3 && bb < 0.3) return 2; // green
+      if (bb > 0.4 && rr < 0.3 && gg < 0.3) return 3; // blue
+      // fallback: nearest neighbor
+    } else {
+      // 8-color mode
+      if (rr > 0.42 && gg < 0.25 && bb < 0.25) return 1; // red
+      if (gg > 0.42 && rr < 0.25 && bb < 0.25) return 2; // green
+      if (bb > 0.42 && rr < 0.25 && gg < 0.25) return 3; // blue
+      if (rr > 0.3 && gg > 0.3 && bb < 0.2 && rr < 0.45 && gg < 0.45) return 4; // yellow
+      if (rr > 0.3 && bb > 0.3 && gg < 0.2 && rr < 0.45 && bb < 0.45) return 5; // magenta
+      if (gg > 0.3 && bb > 0.3 && rr < 0.2 && gg < 0.45 && bb < 0.45) return 6; // cyan
+      if (minC > 160 && maxC - minC < 50) return 7; // white
+    }
+
+    // Euclidean fallback
     let best = 0, bestDist = Infinity;
     for (let i = 0; i < palette.length; i++) {
       const [cr, cg, cb] = palette[i];
@@ -226,20 +269,34 @@ const Cimbar = (() => {
     palette = palette || DATA_COLORS_8;
     const grid = createEmptyGrid(gridSize);
     const pixels = imageData.data;
+
+    // Sample border color for white-balance reference
+    let refR = 0, refG = 0, refB = 0, refN = 0;
+    const cMidU = 0.5, cMidV = 0.5;
+    for (let s = 0; s < 3; s++) {
+      const uu = (gridSize / 2 - 1 + s) / gridSize;
+      const vv = (gridSize / 2 - 1 + s) / gridSize;
+      const pt = mapPoint(corners, uu, vv);
+      const c = samplePatch(pixels, imgWidth, imgHeight, pt.x, pt.y, 0);
+      refR += c.r; refG += c.g; refB += c.b; refN++;
+    }
+    const avgRefR = refN > 0 ? refR / refN : 128;
+    const avgRefG = refN > 0 ? refG / refN : 128;
+    const avgRefB = refN > 0 ? refB / refN : 128;
+    const refBright = (avgRefR + avgRefG + avgRefB) / 3 || 1;
+
     for (let r = 0; r < gridSize; r++) {
       for (let c = 0; c < gridSize; c++) {
         const u = (c + 0.5) / gridSize, v = (r + 0.5) / gridSize;
         const pt = mapPoint(corners, u, v);
-        const sx = Math.round(pt.x), sy = Math.round(pt.y);
-        if (sx < 0 || sx >= imgWidth || sy < 0 || sy >= imgHeight) continue;
-        const idx = (sy * imgWidth + sx) * 4;
-        const pr = pixels[idx], pg = pixels[idx + 1], pb = pixels[idx + 2];
+        const patch = samplePatch(pixels, imgWidth, imgHeight, pt.x, pt.y, 1);
+
         const isBorder = r < BORDER_CELLS || r >= gridSize - BORDER_CELLS ||
                          c < BORDER_CELLS || c >= gridSize - BORDER_CELLS;
         if (isBorder) {
-          grid[r][c] = ((pr - 255) ** 2 + (pg - 255) ** 2 + (pb - 255) ** 2) < 15000 ? -2 : -1;
+          grid[r][c] = ((patch.r - 255) ** 2 + (patch.g - 255) ** 2 + (patch.b - 255) ** 2) < 20000 ? -2 : -1;
         } else {
-          grid[r][c] = classifyCellColor(pr, pg, pb, palette);
+          grid[r][c] = classifyCellColorRatio(patch.r, patch.g, patch.b, palette);
         }
       }
     }
@@ -276,7 +333,6 @@ const Cimbar = (() => {
     return { frameIdx, totalFrames, hasFilename, payload, version: fb[1], colorDepth, gridSize: fb[7] || DEFAULT_GRID };
   }
 
-  // Auto-detect: try all gridSize × colorDepth combos, return first valid frame
   function autoDetectFrame(imageData, imgWidth, imgHeight, corners) {
     for (const gs of TRIAL_GRIDS) {
       for (const cc of TRIAL_COLORS) {
@@ -295,6 +351,6 @@ const Cimbar = (() => {
     BORDER_CELLS, DEFAULT_GRID, TRIAL_GRIDS,
     bytesPerFrame, crc16, encodeFile, renderGrid, paletteFor, bitsPerCellFor,
     findGridCorners, sampleGrid, decodeGrid, autoDetectFrame,
-    getCellColor, classifyCellColor,
+    getCellColor, samplePatch,
   };
 })();
