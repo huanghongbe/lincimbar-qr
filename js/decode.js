@@ -18,8 +18,8 @@ const DecodeUI = (() => {
     previewCanvas = previewCanvasEl;
     previewCtx = previewCanvas.getContext('2d');
     scanCanvas = document.createElement('canvas');
-    scanCanvas.width = scanWidth || 640;
-    scanCanvas.height = scanHeight || 480;
+    scanCanvas.width = scanWidth || 800;
+    scanCanvas.height = scanHeight || 600;
     scanCtx = scanCanvas.getContext('2d');
   }
 
@@ -91,7 +91,7 @@ const DecodeUI = (() => {
 
     if (!frame) {
       debugCount++;
-      drawDebugText('DETECT but no valid frame #' + debugCount);
+      drawDebugText('No valid frame (tried 5 grids × 2 colors) #' + debugCount);
       return null;
     }
 

@@ -281,8 +281,8 @@ footer {
         </label>
         <label>颜色
           <select id="color-select">
-            <option value="4">4色</option>
-            <option value="8" selected>8色</option>
+            <option value="4" selected>4色</option>
+            <option value="8">8色</option>
           </select>
         </label>
       </div>
@@ -351,7 +351,7 @@ const Cimbar = (() => {
   const CORNER_MARKER = [255, 255, 255];
   const BORDER_CELLS = 2;
   const DEFAULT_GRID = 30;
-  const DEFAULT_COLORS = 8;
+  const DEFAULT_COLORS = 4;
   const TRIAL_GRIDS = [24, 30, 36, 42, 48];
   const TRIAL_COLORS = [8, 4];
 
@@ -539,9 +539,9 @@ const Cimbar = (() => {
 
     if (palette.length <= 4) {
       // 4-color mode: use simple channel dominance
-      if (rr > 0.4 && gg < 0.3 && bb < 0.3) return 1; // red
-      if (gg > 0.4 && rr < 0.3 && bb < 0.3) return 2; // green
-      if (bb > 0.4 && rr < 0.3 && gg < 0.3) return 3; // blue
+      if (rr > 0.35 && gg < 0.32 && bb < 0.32) return 1; // red
+      if (gg > 0.35 && rr < 0.32 && bb < 0.32) return 2; // green
+      if (bb > 0.35 && rr < 0.32 && gg < 0.32) return 3; // blue
       // fallback: nearest neighbor
     } else {
       // 8-color mode
@@ -786,8 +786,8 @@ const DecodeUI = (() => {
     previewCanvas = previewCanvasEl;
     previewCtx = previewCanvas.getContext('2d');
     scanCanvas = document.createElement('canvas');
-    scanCanvas.width = scanWidth || 640;
-    scanCanvas.height = scanHeight || 480;
+    scanCanvas.width = scanWidth || 800;
+    scanCanvas.height = scanHeight || 600;
     scanCtx = scanCanvas.getContext('2d');
   }
 
@@ -859,7 +859,7 @@ const DecodeUI = (() => {
 
     if (!frame) {
       debugCount++;
-      drawDebugText('DETECT but no valid frame #' + debugCount);
+      drawDebugText('No valid frame (tried 5 grids × 2 colors) #' + debugCount);
       return null;
     }
 
@@ -1017,7 +1017,7 @@ const DecodeUI = (() => {
   }
 
   EncodeUI.init(encodeCanvas, BARCODE_SIZE);
-  DecodeUI.init(decodeVideo, decodePreview, 640, 480);
+  DecodeUI.init(decodeVideo, decodePreview, 800, 600);
 
   function switchTab(tab) {
     clearEncodeInterval(); clearDecodeInterval();

@@ -18,7 +18,7 @@ const Cimbar = (() => {
   const CORNER_MARKER = [255, 255, 255];
   const BORDER_CELLS = 2;
   const DEFAULT_GRID = 30;
-  const DEFAULT_COLORS = 8;
+  const DEFAULT_COLORS = 4;
   const TRIAL_GRIDS = [24, 30, 36, 42, 48];
   const TRIAL_COLORS = [8, 4];
 
@@ -206,9 +206,9 @@ const Cimbar = (() => {
 
     if (palette.length <= 4) {
       // 4-color mode: use simple channel dominance
-      if (rr > 0.4 && gg < 0.3 && bb < 0.3) return 1; // red
-      if (gg > 0.4 && rr < 0.3 && bb < 0.3) return 2; // green
-      if (bb > 0.4 && rr < 0.3 && gg < 0.3) return 3; // blue
+      if (rr > 0.35 && gg < 0.32 && bb < 0.32) return 1; // red
+      if (gg > 0.35 && rr < 0.32 && bb < 0.32) return 2; // green
+      if (bb > 0.35 && rr < 0.32 && gg < 0.32) return 3; // blue
       // fallback: nearest neighbor
     } else {
       // 8-color mode

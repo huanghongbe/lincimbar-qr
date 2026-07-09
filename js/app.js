@@ -32,7 +32,7 @@
   }
 
   EncodeUI.init(encodeCanvas, BARCODE_SIZE);
-  DecodeUI.init(decodeVideo, decodePreview, 640, 480);
+  DecodeUI.init(decodeVideo, decodePreview, 800, 600);
 
   function switchTab(tab) {
     clearEncodeInterval(); clearDecodeInterval();
